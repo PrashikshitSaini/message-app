@@ -304,11 +304,15 @@ def view_chat_messages(auth_token):
             else:
                 print(f"\n=== Messages in '{chat_name}' ===")
                 print("Most recent messages first:\n")
-                for msg in messages:
+                for i, msg in enumerate(messages):
                     sender = msg.get('sender', 'Unknown')
                     content = msg.get('content', '')
                     timestamp = msg.get('timestamp', 'Unknown time')
-                    print(f"[{timestamp}] {sender}: {content}")
+                    message_id = msg.get('id', 'Unknown')
+                    print(f"{i+1}. ID: {message_id} [{timestamp}] {sender}: {content}")
+                    
+                # Store the messages for later reference
+                return {'chat_name': chat_name, 'messages': messages}
         else:
             error_code = result.get('error_opcode')
             if error_code == 0x17:
@@ -317,6 +321,61 @@ def view_chat_messages(auth_token):
                 print('✗ Insufficient permissions - you are not a member of this chat')
             else:
                 print(f'✗ Error retrieving messages (code: {error_code})')
+        
+        return None
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON response. Raw response: {response.text}")
+    except Exception as e:
+        print(f"Connection error: {e}")
+        
+    return None
+
+def edit_message(auth_token):
+    print("\n=== Edit Message in Chat ===")
+    chat_name = input("Enter chat name: ")
+    message_id = input("Enter message ID to edit: ")
+    updated_message = input("Enter updated message: ")
+    
+    url = f'{BASE_URL}/edit-message'
+    payload = {
+        'authentication_token': auth_token,
+        'opcode': 0x11,
+        'chat_name': chat_name,
+        'message_id': message_id,
+        'updated_message': updated_message,
+        'updated_message_type': 0x00  # Default message type
+    }
+    
+    try:
+        print(f"Sending request to edit message in chat {chat_name}...")
+        response = requests.post(url, json=payload)
+        
+        # Check if the request was successful
+        if response.status_code != 200:
+            print(f"Server returned status code: {response.status_code}")
+            if response.status_code == 404:
+                print("Error: Endpoint not found. Make sure the server is running and the endpoint is registered.")
+                return
+            print(f"Response text: {response.text}")
+            return
+            
+        result = response.json()
+        if result.get('opcode') == 0x00:
+            print('✓ Message edited successfully!')
+        else:
+            error_code = result.get('error_opcode')
+            if error_code == 0x19:
+                print('✗ Invalid chat name - chat does not exist')
+            elif error_code == 0x20:
+                print('✗ Invalid message ID - message does not exist')
+            elif error_code == 0x21:
+                print('✗ Invalid updated message - cannot be empty')
+            elif error_code == 0x47:
+                print('✗ Invalid message type')
+            elif error_code == 0x49:
+                print('✗ Insufficient permissions - you can only edit your own messages')
+            else:
+                print(f'✗ Error editing message (code: {error_code})')
     except json.JSONDecodeError:
         print(f"Error: Could not decode JSON response. Raw response: {response.text}")
     except Exception as e:
@@ -402,6 +461,94 @@ def delete_chat(auth_token):
     except Exception as e:
         print(f"Connection error: {e}")
 
+def delete_message(auth_token):
+    print("\n=== Delete Message from Chat ===")
+    chat_name = input("Enter chat name: ")
+    message_id = input("Enter message ID to delete: ")
+    
+    url = f'{BASE_URL}/delete-message'
+    payload = {
+        'authentication_token': auth_token,
+        'opcode': 0x12,
+        'chat_name': chat_name,
+        'message_id': message_id
+    }
+    
+    try:
+        print(f"Sending request to delete message from chat {chat_name}...")
+        response = requests.post(url, json=payload)
+        
+        # Check if the request was successful
+        if response.status_code != 200:
+            print(f"Server returned status code: {response.status_code}")
+            if response.status_code == 404:
+                print("Error: Endpoint not found. Make sure the server is running and the endpoint is registered.")
+                return
+            print(f"Response text: {response.text}")
+            return
+            
+        result = response.json()
+        if result.get('opcode') == 0x00:
+            print('✓ Message deleted successfully!')
+        else:
+            error_code = result.get('error_opcode')
+            if error_code == 0x22:
+                print('✗ Invalid chat name - chat does not exist')
+            elif error_code == 0x23:
+                print('✗ Invalid message ID - message does not exist')
+            elif error_code == 0x49:
+                print('✗ Insufficient permissions - you can only delete your own messages or messages in chats you created')
+            else:
+                print(f'✗ Error deleting message (code: {error_code})')
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON response. Raw response: {response.text}")
+    except Exception as e:
+        print(f"Connection error: {e}")
+
+def create_role(auth_token):
+    print("\n=== Create Role in Chat ===")
+    chat_name = input("Enter chat name: ")
+    role_name = input("Enter role name: ")
+    
+    url = f'{BASE_URL}/create-role'
+    payload = {
+        'authentication_token': auth_token,
+        'opcode': 0x13,
+        'chat_name': chat_name,
+        'role_name': role_name
+    }
+    
+    try:
+        print(f"Sending request to create role '{role_name}' in chat {chat_name}...")
+        response = requests.post(url, json=payload)
+        
+        # Check if the request was successful
+        if response.status_code != 200:
+            print(f"Server returned status code: {response.status_code}")
+            if response.status_code == 404:
+                print("Error: Endpoint not found. Make sure the server is running and the endpoint is registered.")
+                return
+            print(f"Response text: {response.text}")
+            return
+            
+        result = response.json()
+        if result.get('opcode') == 0x00:
+            print(f'✓ Role "{role_name}" created successfully in chat "{chat_name}"!')
+        else:
+            error_code = result.get('error_opcode')
+            if error_code == 0x24:
+                print('✗ Invalid chat name - chat does not exist')
+            elif error_code == 0x25:
+                print('✗ Invalid role name - name cannot be empty or role already exists')
+            elif error_code == 0x49:
+                print('✗ Insufficient permissions - only the chat creator can create roles')
+            else:
+                print(f'✗ Error creating role (code: {error_code})')
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON response. Raw response: {response.text}")
+    except Exception as e:
+        print(f"Connection error: {e}")
+
 def main():
             while True:
                 print("\n=== Main Menu ===")
@@ -425,7 +572,10 @@ def main():
                             print("6. View Chat Messages")
                             print("7. Leave Chat")
                             print("8. Delete Chat")
-                            print("9. Logout")
+                            print("9. Edit Message")
+                            print("10. Delete Message")
+                            print("11. Create Role")
+                            print("12. Logout")
                             auth_choice = input("Enter choice: ")
                             
                             if auth_choice == '1':
@@ -445,6 +595,12 @@ def main():
                             elif auth_choice == '8':
                                 delete_chat(auth_token)
                             elif auth_choice == '9':
+                                edit_message(auth_token)
+                            elif auth_choice == '10':
+                                delete_message(auth_token)
+                            elif auth_choice == '11':
+                                create_role(auth_token)
+                            elif auth_choice == '12':
                                 print("Logging out...")
                                 break
                             else:

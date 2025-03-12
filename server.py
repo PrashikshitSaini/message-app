@@ -513,7 +513,9 @@ def get_chat_messages():
                 'sender': msg_data.get('sender_username'),
                 'content': msg_data.get('content'),
                 'timestamp': timestamp_str,
-                'type': msg_data.get('type')
+                'type': msg_data.get('type'),
+                'id': msg.id,  # Include the message ID
+                'edited': msg_data.get('edited', False)
             })
         
         # Return the messages
@@ -526,6 +528,90 @@ def get_chat_messages():
         
     except Exception as e:
         logger.error(f"Error retrieving messages: {str(e)}")
+        return jsonify({'opcode': 0x11, 'error_opcode': 0x45})  # Unknown error
+
+# Edit Message in Chat Endpoint
+@app.route('/edit-message', methods=['POST'])
+def edit_message():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+    message_id = data.get('message_id')
+    updated_message = data.get('updated_message')
+    updated_message_type = data.get('updated_message_type')
+
+    # Log the received data for debugging
+    logger.info(f"Received edit-message request: chat_name={chat_name}, message_id={message_id}")
+
+    if opcode != 0x11:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x44})  # Unknown opcode
+
+    try:
+        # Verify the token
+        session = verify_token(auth_token)
+        if not session:
+            logger.warning(f"Invalid token received for edit message operation")
+            return jsonify({'opcode': 0x11, 'error_opcode': 0x48})  # Invalid token
+        
+        requesting_uid = session['uid']
+        
+        # Validate message type
+        if updated_message_type != 0x00:  # Currently only supporting default type 0x00
+            logger.warning(f"User {requesting_uid} attempted to edit message with invalid type: {updated_message_type}")
+            return jsonify({'opcode': 0x11, 'error_opcode': 0x47})  # Invalid message type
+        
+        # Validate updated message content
+        if not updated_message or not updated_message.strip():
+            logger.warning(f"User {requesting_uid} attempted to edit to empty message")
+            return jsonify({'opcode': 0x11, 'error_opcode': 0x21})  # Invalid updated message
+        
+        # Find the chat by name
+        chats_ref = db.collection('chats')
+        chat_query = chats_ref.where('name', '==', chat_name).limit(1).get()
+        
+        if not chat_query or len(chat_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to edit message in non-existent chat: '{chat_name}'")
+            return jsonify({'opcode': 0x11, 'error_opcode': 0x19})  # Invalid chat name
+        
+        chat_doc = chat_query[0]
+        chat_data = chat_doc.to_dict()
+        chat_id = chat_doc.id
+        
+        # Check if the requester is a member of the chat
+        if requesting_uid not in chat_data.get('members', []):
+            logger.warning(f"User {requesting_uid} attempted to edit message in chat they're not a member of: '{chat_name}'")
+            return jsonify({'opcode': 0x11, 'error_opcode': 0x49})  # Insufficient permissions
+        
+        # Try to get the message to edit
+        try:
+            message_doc = db.collection('chats').document(chat_id).collection('messages').document(message_id).get()
+            if not message_doc.exists:
+                logger.warning(f"User {requesting_uid} attempted to edit non-existent message: {message_id}")
+                return jsonify({'opcode': 0x11, 'error_opcode': 0x20})  # Invalid message id
+        except Exception as e:
+            logger.warning(f"Error retrieving message: {str(e)}")
+            return jsonify({'opcode': 0x11, 'error_opcode': 0x20})  # Invalid message id
+        
+        # Check if user is the message sender
+        message_data = message_doc.to_dict()
+        if message_data.get('sender_uid') != requesting_uid:
+            logger.warning(f"User {requesting_uid} attempted to edit message they didn't send")
+            return jsonify({'opcode': 0x11, 'error_opcode': 0x49})  # Insufficient permissions
+        
+        # Update the message
+        message_doc.reference.update({
+            'content': updated_message,
+            'type': updated_message_type,
+            'edited': True,
+            'edited_at': firestore.SERVER_TIMESTAMP
+        })
+        
+        logger.info(f"User {requesting_uid} edited message {message_id} in chat '{chat_name}'")
+        return jsonify({'opcode': 0x00})  # Success
+        
+    except Exception as e:
+        logger.error(f"Error editing message: {str(e)}")
         return jsonify({'opcode': 0x11, 'error_opcode': 0x45})  # Unknown error
 
 # Delete Chat Endpoint
@@ -600,6 +686,153 @@ def delete_chat():
     except Exception as e:
         logger.error(f"Error deleting chat: {str(e)}")
         return jsonify({'opcode': 0x07, 'error_opcode': 0x45})  # Unknown error
+
+# Delete Message in Chat Endpoint
+@app.route('/delete-message', methods=['POST'])
+def delete_message():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+    message_id = data.get('message_id')
+
+    # Log the received data for debugging
+    logger.info(f"Received delete-message request: chat_name={chat_name}, message_id={message_id}")
+
+    if opcode != 0x12:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x44})  # Unknown opcode
+
+    try:
+        # Verify the token
+        session = verify_token(auth_token)
+        if not session:
+            logger.warning(f"Invalid token received for delete message operation")
+            return jsonify({'opcode': 0x12, 'error_opcode': 0x48})  # Invalid token
+        
+        requesting_uid = session['uid']
+        
+        # Find the chat by name
+        chats_ref = db.collection('chats')
+        chat_query = chats_ref.where('name', '==', chat_name).limit(1).get()
+        
+        if not chat_query or len(chat_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to delete message in non-existent chat: '{chat_name}'")
+            return jsonify({'opcode': 0x12, 'error_opcode': 0x22})  # Invalid chat name
+        
+        chat_doc = chat_query[0]
+        chat_data = chat_doc.to_dict()
+        chat_id = chat_doc.id
+        
+        # Check if the requester is a member of the chat
+        if requesting_uid not in chat_data.get('members', []):
+            logger.warning(f"User {requesting_uid} attempted to delete message in chat they're not a member of: '{chat_name}'")
+            return jsonify({'opcode': 0x12, 'error_opcode': 0x49})  # Insufficient permissions
+        
+        # Try to get the message to delete
+        try:
+            message_doc = db.collection('chats').document(chat_id).collection('messages').document(message_id).get()
+            if not message_doc.exists:
+                logger.warning(f"User {requesting_uid} attempted to delete non-existent message: {message_id}")
+                return jsonify({'opcode': 0x12, 'error_opcode': 0x23})  # Invalid message id
+        except Exception as e:
+            logger.warning(f"Error retrieving message: {str(e)}")
+            return jsonify({'opcode': 0x12, 'error_opcode': 0x23})  # Invalid message id
+        
+        message_data = message_doc.to_dict()
+        
+        # Check if user has permission to delete the message
+        # User can delete if they are the message sender or the chat creator
+        is_message_sender = message_data.get('sender_uid') == requesting_uid
+        is_chat_creator = chat_data.get('created_by') == requesting_uid
+        
+        if not (is_message_sender or is_chat_creator):
+            logger.warning(f"User {requesting_uid} attempted to delete a message they didn't send and they are not the chat creator")
+            return jsonify({'opcode': 0x12, 'error_opcode': 0x49})  # Insufficient permissions
+        
+        # Delete the message
+        message_doc.reference.delete()
+        
+        logger.info(f"User {requesting_uid} deleted message {message_id} from chat '{chat_name}'")
+        return jsonify({'opcode': 0x00})  # Success
+        
+    except Exception as e:
+        logger.error(f"Error deleting message: {str(e)}")
+        return jsonify({'opcode': 0x12, 'error_opcode': 0x45})  # Unknown error
+
+# Create Role in Chat Endpoint
+@app.route('/create-role', methods=['POST'])
+def create_role():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+    role_name = data.get('role_name')
+
+    # Log the received data for debugging
+    logger.info(f"Received create-role request: chat_name={chat_name}, role_name={role_name}")
+
+    if opcode != 0x13:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x44})  # Unknown opcode
+
+    try:
+        # Verify the token
+        session = verify_token(auth_token)
+        if not session:
+            logger.warning(f"Invalid token received for create role operation")
+            return jsonify({'opcode': 0x13, 'error_opcode': 0x48})  # Invalid token
+        
+        requesting_uid = session['uid']
+        
+        # Find the chat by name
+        chats_ref = db.collection('chats')
+        chat_query = chats_ref.where('name', '==', chat_name).limit(1).get()
+        
+        if not chat_query or len(chat_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to create role in non-existent chat: '{chat_name}'")
+            return jsonify({'opcode': 0x13, 'error_opcode': 0x24})  # Invalid chat name
+        
+        chat_doc = chat_query[0]
+        chat_data = chat_doc.to_dict()
+        chat_id = chat_doc.id
+        
+        # Check if the requester is the chat creator (admin)
+        if requesting_uid != chat_data.get('created_by'):
+            logger.warning(f"User {requesting_uid} attempted to create role but is not the admin of chat: '{chat_name}'")
+            return jsonify({'opcode': 0x13, 'error_opcode': 0x49})  # Insufficient permissions
+        
+        # Validate role name
+        if not role_name or len(role_name.strip()) < 1:
+            logger.warning(f"User {requesting_uid} attempted to create role with invalid name: '{role_name}'")
+            return jsonify({'opcode': 0x13, 'error_opcode': 0x25})  # Invalid role name
+        
+        # Check if roles field exists, if not create it
+        if 'roles' not in chat_data:
+            chat_data['roles'] = {}
+        
+        # Check if role already exists
+        if role_name in chat_data.get('roles', {}):
+            logger.warning(f"Role '{role_name}' already exists in chat '{chat_name}'")
+            return jsonify({'opcode': 0x13, 'error_opcode': 0x25})  # Invalid role name (already exists)
+        
+        # Add the new role to the chat
+        roles = chat_data.get('roles', {})
+        roles[role_name] = {
+            'created_by': requesting_uid,
+            'created_at': firestore.SERVER_TIMESTAMP,
+            'permissions': []  # Default permissions can be added here if needed
+        }
+        
+        # Update the chat document
+        chat_doc.reference.update({
+            'roles': roles
+        })
+        
+        logger.info(f"User {requesting_uid} created role '{role_name}' in chat '{chat_name}'")
+        return jsonify({'opcode': 0x00})  # Success
+        
+    except Exception as e:
+        logger.error(f"Error creating role: {str(e)}")
+        return jsonify({'opcode': 0x13, 'error_opcode': 0x45})  # Unknown error
 
 if __name__ == '__main__':
     logger.info("Starting server on port 3000")
