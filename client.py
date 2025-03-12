@@ -180,6 +180,50 @@ def add_user_to_chat(auth_token):
     except Exception as e:
         print(f"Connection error: {e}")
 
+def remove_user_from_chat(auth_token):
+    print("\n=== Remove User from Chat ===")
+    chat_name = input("Enter chat name: ")
+    username_to_remove = input("Enter username to remove: ")
+    
+    url = f'{BASE_URL}/remove-user-from-chat'
+    payload = {
+        'authentication_token': auth_token,
+        'opcode': 0x04,
+        'chat_name': chat_name,
+        'username_to_remove': username_to_remove
+    }
+    
+    try:
+        print(f"Sending request to remove {username_to_remove} from {chat_name}...")
+        response = requests.post(url, json=payload)
+        
+        # Check if the request was successful
+        if response.status_code != 200:
+            print(f"Server returned status code: {response.status_code}")
+            if response.status_code == 404:
+                print("Error: Endpoint not found. Make sure the server is running and the endpoint is registered.")
+                return
+            print(f"Response text: {response.text}")
+            return
+            
+        result = response.json()
+        if result.get('opcode') == 0x00:
+            print(f'✓ User {username_to_remove} removed from chat {chat_name} successfully!')
+        else:
+            error_code = result.get('error_opcode')
+            if error_code == 0x09:
+                print('✗ Invalid chat name - chat does not exist')
+            elif error_code == 0x10:
+                print('✗ Invalid username - user does not exist or is not in the chat')
+            elif error_code == 0x49:
+                print('✗ Insufficient permissions - only the chat creator can remove users')
+            else:
+                print(f'✗ Error removing user from chat (code: {error_code})')
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON response. Raw response: {response.text}")
+    except Exception as e:
+        print(f"Connection error: {e}")
+
 def send_chat_message(auth_token, username):
     print("\n=== Send Message in Chat ===")
     chat_name = input("Enter chat name: ")
@@ -278,55 +322,140 @@ def view_chat_messages(auth_token):
     except Exception as e:
         print(f"Connection error: {e}")
 
-def show_menu():
-    print("\n=== Messaging App ===")
-    print("1. Create Account")
-    print("2. Login")
-    print("3. Exit")
-    return input("Select option (1-3): ")
+def leave_chat(auth_token):
+    print("\n=== Leave Chat ===")
+    chat_name = input("Enter chat name you want to leave: ")
+    
+    url = f'{BASE_URL}/leave-chat'
+    payload = {
+        'authentication_token': auth_token,
+        'opcode': 0x05,
+        'chat_name': chat_name
+    }
+    
+    try:
+        print(f"Sending request to leave chat {chat_name}...")
+        response = requests.post(url, json=payload)
+        
+        # Check if the request was successful
+        if response.status_code != 200:
+            print(f"Server returned status code: {response.status_code}")
+            if response.status_code == 404:
+                print("Error: Endpoint not found. Make sure the server is running and the endpoint is registered.")
+                return
+            print(f"Response text: {response.text}")
+            return
+            
+        result = response.json()
+        if result.get('opcode') == 0x00:
+            print(f'✓ You have successfully left chat {chat_name}!')
+        else:
+            error_code = result.get('error_opcode')
+            if error_code == 0x11:
+                        print('✗ Invalid chat name - chat does not exist')
+            elif error_code == 0x49:
+                        print('✗ Insufficient permissions - you are not a member of this chat')
+            else:
+                        print(f'✗ Error leaving chat (code: {error_code})')
+    except json.JSONDecodeError:
+                print(f"Error: Could not decode JSON response. Raw response: {response.text}")
+    except Exception as e:
+                print(f"Connection error: {e}")
 
-def show_authenticated_menu():
-    print("\n=== Main Menu ===")
-    print("1. Send Message to Server")
-    print("2. Create Chat")
-    print("3. Add User to Chat") 
-    print("4. Send Message in Chat")
-    print("5. View Chat Messages")
-    print("6. Logout")
-    return input("Select option (1-6): ")
+def delete_chat(auth_token):
+    print("\n=== Delete Chat ===")
+    chat_name = input("Enter chat name you want to delete: ")
+    
+    url = f'{BASE_URL}/delete-chat'
+    payload = {
+        'authentication_token': auth_token,
+        'opcode': 0x07,
+        'chat_name': chat_name
+    }
+    
+    try:
+        print(f"Sending request to delete chat {chat_name}...")
+        response = requests.post(url, json=payload)
+        
+        # Check if the request was successful
+        if response.status_code != 200:
+            print(f"Server returned status code: {response.status_code}")
+            if response.status_code == 404:
+                print("Error: Endpoint not found. Make sure the server is running and the endpoint is registered.")
+                return
+            print(f"Response text: {response.text}")
+            return
+            
+        result = response.json()
+        if result.get('opcode') == 0x00:
+            print(f'✓ Chat {chat_name} has been successfully deleted!')
+        else:
+            error_code = result.get('error_opcode')
+            if error_code == 0x14:
+                print('✗ Invalid chat name - chat does not exist')
+            elif error_code == 0x49:
+                print('✗ Insufficient permissions - only the chat creator can delete the chat')
+            else:
+                print(f'✗ Error deleting chat (code: {error_code})')
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON response. Raw response: {response.text}")
+    except Exception as e:
+        print(f"Connection error: {e}")
 
 def main():
-    while True:
-        choice = show_menu()
+            while True:
+                print("\n=== Main Menu ===")
+                print("1. Create Account")
+                print("2. Login")
+                print("3. Exit")
+                choice = input("Enter choice: ")
+                
+                if choice == '1':
+                    create_account()
+                elif choice == '2':
+                    auth_token, username = login()
+                    if auth_token:
+                        while True:
+                            print("\n=== Authenticated Menu ===")
+                            print("1. Send Message")
+                            print("2. Create Chat")
+                            print("3. Add User to Chat")
+                            print("4. Remove User from Chat")
+                            print("5. Send Chat Message")
+                            print("6. View Chat Messages")
+                            print("7. Leave Chat")
+                            print("8. Delete Chat")
+                            print("9. Logout")
+                            auth_choice = input("Enter choice: ")
+                            
+                            if auth_choice == '1':
+                                send_message(auth_token, username)
+                            elif auth_choice == '2':
+                                create_chat(auth_token)
+                            elif auth_choice == '3':
+                                add_user_to_chat(auth_token)
+                            elif auth_choice == '4':
+                                remove_user_from_chat(auth_token)
+                            elif auth_choice == '5':
+                                send_chat_message(auth_token, username)
+                            elif auth_choice == '6':
+                                view_chat_messages(auth_token)
+                            elif auth_choice == '7':
+                                leave_chat(auth_token)
+                            elif auth_choice == '8':
+                                delete_chat(auth_token)
+                            elif auth_choice == '9':
+                                print("Logging out...")
+                                break
+                            else:
+                                print("Invalid option, please try again")
+                elif choice == '3':
+                    print("Goodbye!")
+                    sys.exit(0)
+                else:
+                    print("Invalid option, please try again")
         
-        if choice == '1':
-            create_account()
-        elif choice == '2':
-            auth_token, username = login()
-            if auth_token:
-                # User is logged in, show authenticated menu
-                while True:
-                    auth_choice = show_authenticated_menu()
-                    if auth_choice == '1':
-                        send_message(auth_token, username)
-                    elif auth_choice == '2':
-                        create_chat(auth_token)
-                    elif auth_choice == '3':
-                        add_user_to_chat(auth_token)
-                    elif auth_choice == '4':
-                        send_chat_message(auth_token, username)
-                    elif auth_choice == '5':
-                        view_chat_messages(auth_token)
-                    elif auth_choice == '6':
-                        print("Logging out...")
-                        break
-                    else:
-                        print("Invalid option, please try again")
-        elif choice == '3':
-            print("Goodbye!")
-            sys.exit(0)
-        else:
-            print("Invalid option, please try again")
+
 
 # Run the program
 if __name__ == '__main__':

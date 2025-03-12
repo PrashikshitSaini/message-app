@@ -246,6 +246,143 @@ def add_user_to_chat():
         logger.error(f"Error adding user to chat: {str(e)}")
         return jsonify({'opcode': 0x03, 'error_opcode': 0x45})  # Unknown error
 
+# Remove User from Chat Endpoint
+@app.route('/remove-user-from-chat', methods=['POST'])
+def remove_user_from_chat():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+    username_to_remove = data.get('username_to_remove')
+
+    # Log the received data for debugging
+    logger.info(f"Received remove-user-from-chat request: chat_name={chat_name}, username_to_remove={username_to_remove}")
+
+    if opcode != 0x04:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x44})  # Unknown opcode
+
+    try:
+        # Verify the token
+        session = verify_token(auth_token)
+        if not session:
+            logger.warning(f"Invalid token received for remove user from chat operation")
+            return jsonify({'opcode': 0x04, 'error_opcode': 0x48})  # Invalid token
+        
+        requesting_uid = session['uid']
+        
+        # Find the chat by name
+        chats_ref = db.collection('chats')
+        chat_query = chats_ref.where('name', '==', chat_name).limit(1).get()
+        
+        if not chat_query or len(chat_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to remove from non-existent chat: '{chat_name}'")
+            return jsonify({'opcode': 0x04, 'error_opcode': 0x09})  # Invalid chat name
+        
+        chat_doc = chat_query[0]
+        chat_data = chat_doc.to_dict()
+        
+        # Check if the requesting user is the chat creator
+        if requesting_uid != chat_data.get('created_by'):
+            logger.warning(f"User {requesting_uid} attempted to remove user but is not the chat creator of '{chat_name}'")
+            return jsonify({'opcode': 0x04, 'error_opcode': 0x49})  # Insufficient permissions
+        
+        # Find the user to remove
+        users_ref = db.collection('users')
+        user_query = users_ref.where('username', '==', username_to_remove).limit(1).get()
+        
+        if not user_query or len(user_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to remove non-existent user: '{username_to_remove}'")
+            return jsonify({'opcode': 0x04, 'error_opcode': 0x10})  # Invalid username
+        
+        user_to_remove_doc = user_query[0]
+        user_to_remove_id = user_to_remove_doc.id
+        
+        # Check if user is in the chat
+        members = chat_data.get('members', [])
+        if user_to_remove_id not in members:
+            logger.warning(f"User {username_to_remove} is not in chat '{chat_name}'")
+            return jsonify({'opcode': 0x04, 'error_opcode': 0x10})  # Invalid username (not in chat)
+        
+        # Don't allow removing the creator
+        if user_to_remove_id == chat_data.get('created_by'):
+            logger.warning(f"User {requesting_uid} attempted to remove the creator from chat '{chat_name}'")
+            return jsonify({'opcode': 0x04, 'error_opcode': 0x49})  # Insufficient permissions
+        
+        # Remove the user from the chat
+        members.remove(user_to_remove_id)
+        
+        # Update the chat document
+        chat_doc.reference.update({
+            'members': members
+        })
+        
+        logger.info(f"User {requesting_uid} removed {username_to_remove} from chat '{chat_name}'")
+        return jsonify({'opcode': 0x00})  # Success
+        
+    except Exception as e:
+        logger.error(f"Error removing user from chat: {str(e)}")
+        return jsonify({'opcode': 0x04, 'error_opcode': 0x45})  # Unknown error
+
+# Leave Chat Endpoint
+@app.route('/leave-chat', methods=['POST'])
+def leave_chat():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+
+    # Log the received data for debugging
+    logger.info(f"Received leave-chat request: chat_name={chat_name}")
+
+    if opcode != 0x05:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x44})  # Unknown opcode
+
+    try:
+        # Verify the token
+        session = verify_token(auth_token)
+        if not session:
+            logger.warning(f"Invalid token received for leave chat operation")
+            return jsonify({'opcode': 0x05, 'error_opcode': 0x48})  # Invalid token
+        
+        requesting_uid = session['uid']
+        
+        # Find the chat by name
+        chats_ref = db.collection('chats')
+        chat_query = chats_ref.where('name', '==', chat_name).limit(1).get()
+        
+        if not chat_query or len(chat_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to leave non-existent chat: '{chat_name}'")
+            return jsonify({'opcode': 0x05, 'error_opcode': 0x11})  # Invalid chat name
+        
+        chat_doc = chat_query[0]
+        chat_data = chat_doc.to_dict()
+        
+        # Check if user is a member of the chat
+        members = chat_data.get('members', [])
+        if requesting_uid not in members:
+            logger.warning(f"User {requesting_uid} attempted to leave chat they're not a member of: '{chat_name}'")
+            return jsonify({'opcode': 0x05, 'error_opcode': 0x49})  # Insufficient permissions
+        
+        # Check if user is the chat creator - don't allow creator to leave
+        if requesting_uid == chat_data.get('created_by'):
+            logger.warning(f"User {requesting_uid} attempted to leave chat they created: '{chat_name}'")
+            return jsonify({'opcode': 0x05, 'error_opcode': 0x49})  # Insufficient permissions - creator can't leave
+        
+        # Remove the user from the chat
+        members.remove(requesting_uid)
+        
+        # Update the chat document
+        chat_doc.reference.update({
+            'members': members
+        })
+        
+        logger.info(f"User {requesting_uid} left chat '{chat_name}'")
+        return jsonify({'opcode': 0x00})  # Success
+        
+    except Exception as e:
+        logger.error(f"Error leaving chat: {str(e)}")
+        return jsonify({'opcode': 0x05, 'error_opcode': 0x45})  # Unknown error
+
 # Send Message in Chat Endpoint
 @app.route('/send-message', methods=['POST'])
 def send_message_in_chat():
@@ -390,6 +527,79 @@ def get_chat_messages():
     except Exception as e:
         logger.error(f"Error retrieving messages: {str(e)}")
         return jsonify({'opcode': 0x11, 'error_opcode': 0x45})  # Unknown error
+
+# Delete Chat Endpoint
+@app.route('/delete-chat', methods=['POST'])
+def delete_chat():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+
+    # Log the received data for debugging
+    logger.info(f"Received delete-chat request: chat_name={chat_name}")
+
+    if opcode != 0x07:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x44})  # Unknown opcode
+
+    try:
+        # Verify the token
+        session = verify_token(auth_token)
+        if not session:
+            logger.warning(f"Invalid token received for delete chat operation")
+            return jsonify({'opcode': 0x07, 'error_opcode': 0x48})  # Invalid token
+        
+        requesting_uid = session['uid']
+        
+        # Find the chat by name
+        chats_ref = db.collection('chats')
+        chat_query = chats_ref.where('name', '==', chat_name).limit(1).get()
+        
+        if not chat_query or len(chat_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to delete non-existent chat: '{chat_name}'")
+            return jsonify({'opcode': 0x07, 'error_opcode': 0x14})  # Invalid chat name
+        
+        chat_doc = chat_query[0]
+        chat_data = chat_doc.to_dict()
+        chat_id = chat_doc.id
+        
+        # Check if the requesting user is the creator of the chat
+        if requesting_uid != chat_data.get('created_by'):
+            logger.warning(f"User {requesting_uid} attempted to delete chat they did not create: '{chat_name}'")
+            return jsonify({'opcode': 0x07, 'error_opcode': 0x49})  # Insufficient permissions
+        
+        # Delete all messages in the chat
+        messages_ref = db.collection('chats').document(chat_id).collection('messages')
+        batch_size = 500  # Firestore can delete up to 500 documents in a batch
+        
+        # Delete messages in batches
+        deleted = 0
+        while True:
+            docs = messages_ref.limit(batch_size).get()
+            if not docs:
+                break
+                
+            batch = db.batch()
+            for doc in docs:
+                batch.delete(doc.reference)
+                deleted += 1
+            
+            batch.commit()
+            logger.info(f"Deleted {deleted} messages from chat '{chat_name}'")
+            
+            # If we deleted fewer than batch_size, we're done
+            if len(docs) < batch_size:
+                break
+                
+        # Now delete the chat document itself
+        chat_doc.reference.delete()
+        
+        logger.info(f"User {requesting_uid} deleted chat '{chat_name}'")
+        return jsonify({'opcode': 0x00})  # Success
+        
+    except Exception as e:
+        logger.error(f"Error deleting chat: {str(e)}")
+        return jsonify({'opcode': 0x07, 'error_opcode': 0x45})  # Unknown error
 
 if __name__ == '__main__':
     logger.info("Starting server on port 3000")
