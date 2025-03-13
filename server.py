@@ -834,6 +834,267 @@ def create_role():
         logger.error(f"Error creating role: {str(e)}")
         return jsonify({'opcode': 0x13, 'error_opcode': 0x45})  # Unknown error
 
+# Add Role to User in Chat Endpoint
+@app.route('/add-role-to-user', methods=['POST'])
+def add_role_to_user():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+    role_name = data.get('role_name')
+    username_to_add = data.get('username_to_add')
+
+    # Log the received data for debugging
+    logger.info(f"Received add-role-to-user request: chat_name={chat_name}, role_name={role_name}, username={username_to_add}")
+
+    if opcode != 0x14:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x44})  # Unknown opcode
+
+    try:
+        # Verify the token
+        session = verify_token(auth_token)
+        if not session:
+            logger.warning(f"Invalid token received for add role to user operation")
+            return jsonify({'opcode': 0x14, 'error_opcode': 0x48})  # Invalid token
+        
+        requesting_uid = session['uid']
+        
+        # Find the chat by name
+        chats_ref = db.collection('chats')
+        chat_query = chats_ref.where('name', '==', chat_name).limit(1).get()
+        
+        if not chat_query or len(chat_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to add role in non-existent chat: '{chat_name}'")
+            return jsonify({'opcode': 0x14, 'error_opcode': 0x26})  # Invalid chat name
+        
+        chat_doc = chat_query[0]
+        chat_data = chat_doc.to_dict()
+        
+        # Check if the requester is the chat creator (admin)
+        if requesting_uid != chat_data.get('created_by'):
+            logger.warning(f"User {requesting_uid} attempted to add role but is not the admin of chat: '{chat_name}'")
+            return jsonify({'opcode': 0x14, 'error_opcode': 0x49})  # Insufficient permissions
+        
+        # Check if roles field exists and role exists
+        if 'roles' not in chat_data or role_name not in chat_data['roles']:
+            logger.warning(f"Role '{role_name}' does not exist in chat '{chat_name}'")
+            return jsonify({'opcode': 0x14, 'error_opcode': 0x27})  # Invalid role name
+        
+        # Find the user to add the role to
+        users_ref = db.collection('users')
+        user_query = users_ref.where('username', '==', username_to_add).limit(1).get()
+        
+        if not user_query or len(user_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to add role to non-existent user: '{username_to_add}'")
+            return jsonify({'opcode': 0x14, 'error_opcode': 0x28})  # Invalid username
+        
+        user_to_add_doc = user_query[0]
+        user_to_add_id = user_to_add_doc.id
+        
+        # Check if user is a member of the chat
+        if user_to_add_id not in chat_data.get('members', []):
+            logger.warning(f"User {username_to_add} is not a member of chat '{chat_name}'")
+            return jsonify({'opcode': 0x14, 'error_opcode': 0x28})  # Invalid username (not in chat)
+        
+        # Initialize user_roles if it doesn't exist
+        if 'user_roles' not in chat_data:
+            chat_data['user_roles'] = {}
+        
+        # Initialize roles for the user if they don't have any
+        if user_to_add_id not in chat_data['user_roles']:
+            chat_data['user_roles'][user_to_add_id] = []
+        
+        # Add the role to the user if they don't already have it
+        if role_name not in chat_data['user_roles'][user_to_add_id]:
+            chat_data['user_roles'][user_to_add_id].append(role_name)
+        
+        # Update the chat document
+        chat_doc.reference.update({
+            'user_roles': chat_data['user_roles']
+        })
+        
+        logger.info(f"User {requesting_uid} added role '{role_name}' to user {username_to_add} in chat '{chat_name}'")
+        return jsonify({'opcode': 0x00})  # Success
+        
+    except Exception as e:
+        logger.error(f"Error adding role to user: {str(e)}")
+        return jsonify({'opcode': 0x14, 'error_opcode': 0x45})  # Unknown error
+
+# Remove Role from User in Chat Endpoint
+@app.route('/remove-role-from-user', methods=['POST'])
+def remove_role_from_user():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+    role_name = data.get('role_name')
+    username_to_remove = data.get('username_to_remove')
+
+    # Log the received data for debugging
+    logger.info(f"Received remove-role-from-user request: chat_name={chat_name}, role_name={role_name}, username={username_to_remove}")
+
+    if opcode != 0x15:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x44})  # Unknown opcode
+
+    try:
+        # Verify the token
+        session = verify_token(auth_token)
+        if not session:
+            logger.warning(f"Invalid token received for remove role from user operation")
+            return jsonify({'opcode': 0x15, 'error_opcode': 0x48})  # Invalid token
+        
+        requesting_uid = session['uid']
+        
+        # Find the chat by name
+        chats_ref = db.collection('chats')
+        chat_query = chats_ref.where('name', '==', chat_name).limit(1).get()
+        
+        if not chat_query or len(chat_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to remove role in non-existent chat: '{chat_name}'")
+            return jsonify({'opcode': 0x15, 'error_opcode': 0x29})  # Invalid chat name
+        
+        chat_doc = chat_query[0]
+        chat_data = chat_doc.to_dict()
+        
+        # Check if the requester is the chat creator (admin)
+        if requesting_uid != chat_data.get('created_by'):
+            logger.warning(f"User {requesting_uid} attempted to remove role but is not the admin of chat: '{chat_name}'")
+            return jsonify({'opcode': 0x15, 'error_opcode': 0x49})  # Insufficient permissions
+        
+        # Check if roles field exists and role exists
+        if 'roles' not in chat_data or role_name not in chat_data['roles']:
+            logger.warning(f"Role '{role_name}' does not exist in chat '{chat_name}'")
+            return jsonify({'opcode': 0x15, 'error_opcode': 0x30})  # Invalid role name
+        
+        # Find the user to remove the role from
+        users_ref = db.collection('users')
+        user_query = users_ref.where('username', '==', username_to_remove).limit(1).get()
+        
+        if not user_query or len(user_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to remove role from non-existent user: '{username_to_remove}'")
+            return jsonify({'opcode': 0x15, 'error_opcode': 0x31})  # Invalid username
+        
+        user_doc = user_query[0]
+        user_id = user_doc.id
+        
+        # Check if user is a member of the chat
+        if user_id not in chat_data.get('members', []):
+            logger.warning(f"User {username_to_remove} is not a member of chat '{chat_name}'")
+            return jsonify({'opcode': 0x15, 'error_opcode': 0x31})  # Invalid username (not in chat)
+        
+        # Check if user_roles exists in the chat data
+        if 'user_roles' not in chat_data or user_id not in chat_data['user_roles']:
+            logger.warning(f"User {username_to_remove} does not have any roles in chat '{chat_name}'")
+            return jsonify({'opcode': 0x15, 'error_opcode': 0x31})  # No roles to remove
+        
+        # Check if user has the role
+        user_roles = chat_data['user_roles'][user_id]
+        if role_name not in user_roles:
+            logger.warning(f"User {username_to_remove} does not have role '{role_name}' in chat '{chat_name}'")
+            return jsonify({'opcode': 0x15, 'error_opcode': 0x30})  # Role not assigned to user
+        
+        # Remove the role from the user
+        user_roles.remove(role_name)
+        
+        # If no roles left, remove the user from user_roles
+        if not user_roles:
+            del chat_data['user_roles'][user_id]
+        else:
+            chat_data['user_roles'][user_id] = user_roles
+        
+        # Update the chat document
+        chat_doc.reference.update({
+            'user_roles': chat_data['user_roles']
+        })
+        
+        logger.info(f"User {requesting_uid} removed role '{role_name}' from user {username_to_remove} in chat '{chat_name}'")
+        return jsonify({'opcode': 0x00})  # Success
+        
+    except Exception as e:
+        logger.error(f"Error removing role from user: {str(e)}")
+        return jsonify({'opcode': 0x15, 'error_opcode': 0x45})  # Unknown error
+
+# Poke User in Chat Endpoint
+@app.route('/poke-user', methods=['POST'])
+def poke_user():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+    username_to_poke = data.get('username_to_poke')
+
+    # Log the received data for debugging
+    logger.info(f"Received poke-user request: chat_name={chat_name}, username_to_poke={username_to_poke}")
+
+    if opcode != 0x19:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x44})  # Unknown opcode
+
+    try:
+        # Verify the token
+        session = verify_token(auth_token)
+        if not session:
+            logger.warning(f"Invalid token received for poke user operation")
+            return jsonify({'opcode': 0x19, 'error_opcode': 0x48})  # Invalid token
+        
+        requesting_uid = session['uid']
+        requesting_username = session['username']
+        
+        # Find the chat by name
+        chats_ref = db.collection('chats')
+        chat_query = chats_ref.where('name', '==', chat_name).limit(1).get()
+        
+        if not chat_query or len(chat_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to poke in non-existent chat: '{chat_name}'")
+            return jsonify({'opcode': 0x19, 'error_opcode': 0x38})  # Invalid chat name
+        
+        chat_doc = chat_query[0]
+        chat_data = chat_doc.to_dict()
+        chat_id = chat_doc.id
+        
+        # Check if the requester is a member of the chat
+        if requesting_uid not in chat_data.get('members', []):
+            logger.warning(f"User {requesting_uid} attempted to poke in chat they're not a member of: '{chat_name}'")
+            return jsonify({'opcode': 0x19, 'error_opcode': 0x49})  # Insufficient permissions
+        
+        # Find the user to poke
+        users_ref = db.collection('users')
+        user_query = users_ref.where('username', '==', username_to_poke).limit(1).get()
+        
+        if not user_query or len(user_query) == 0:
+            logger.warning(f"User {requesting_uid} attempted to poke non-existent user: '{username_to_poke}'")
+            return jsonify({'opcode': 0x19, 'error_opcode': 0x39})  # Invalid username
+        
+        user_to_poke_doc = user_query[0]
+        user_to_poke_id = user_to_poke_doc.id
+        
+        # Check if user to poke is a member of the chat
+        if user_to_poke_id not in chat_data.get('members', []):
+            logger.warning(f"User {username_to_poke} is not a member of chat '{chat_name}'")
+            return jsonify({'opcode': 0x19, 'error_opcode': 0x39})  # Invalid username (not in chat)
+        
+        # Don't allow poking yourself
+        if requesting_uid == user_to_poke_id:
+            logger.warning(f"User {requesting_username} attempted to poke themselves in chat '{chat_name}'")
+            return jsonify({'opcode': 0x19, 'error_opcode': 0x39})  # Invalid username (can't poke yourself)
+        
+        # Store the poke in the database as a special message
+        poke_ref = db.collection('chats').document(chat_id).collection('messages').document()
+        poke_ref.set({
+            'sender_uid': requesting_uid,
+            'sender_username': requesting_username,
+            'content': f"{requesting_username} poked {username_to_poke}!",
+            'type': 0x01,  # Special message type for poke
+            'poke_target': username_to_poke,
+            'timestamp': firestore.SERVER_TIMESTAMP
+        })
+        
+        logger.info(f"User {requesting_username} poked {username_to_poke} in chat '{chat_name}'")
+        return jsonify({'opcode': 0x00})  # Success
+        
+    except Exception as e:
+        logger.error(f"Error poking user: {str(e)}")
+        return jsonify({'opcode': 0x19, 'error_opcode': 0x45})  # Unknown error
+
 if __name__ == '__main__':
     logger.info("Starting server on port 3000")
     app.run(host='0.0.0.0', port=3000, threaded=True)  # Enable threading for multiple clients

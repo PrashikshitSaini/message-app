@@ -309,7 +309,12 @@ def view_chat_messages(auth_token):
                     content = msg.get('content', '')
                     timestamp = msg.get('timestamp', 'Unknown time')
                     message_id = msg.get('id', 'Unknown')
-                    print(f"{i+1}. ID: {message_id} [{timestamp}] {sender}: {content}")
+                    message_type = msg.get('type', 0)
+                    
+                    if message_type == 0x01:  # Poke message
+                        print(f"{i+1}. ID: {message_id} [{timestamp}] 👉 {content}")
+                    else:
+                        print(f"{i+1}. ID: {message_id} [{timestamp}] {sender}: {content}")
                     
                 # Store the messages for later reference
                 return {'chat_name': chat_name, 'messages': messages}
@@ -549,6 +554,202 @@ def create_role(auth_token):
     except Exception as e:
         print(f"Connection error: {e}")
 
+def add_role_to_user(auth_token):
+    print("\n=== Add Role to User in Chat ===")
+    chat_name = input("Enter chat name: ")
+    role_name = input("Enter role name: ")
+    username = input("Enter username to assign role to: ")
+    
+    url = f'{BASE_URL}/add-role-to-user'
+    payload = {
+        'authentication_token': auth_token,
+        'opcode': 0x14,
+        'chat_name': chat_name,
+        'role_name': role_name,
+        'username_to_add': username
+    }
+    
+    try:
+        print(f"Sending request to assign role '{role_name}' to user '{username}' in chat {chat_name}...")
+        response = requests.post(url, json=payload)
+        
+        # Check if the request was successful
+        if response.status_code != 200:
+            print(f"Server returned status code: {response.status_code}")
+            if response.status_code == 404:
+                print("Error: Endpoint not found. Make sure the server is running and the endpoint is registered.")
+                return
+            print(f"Response text: {response.text}")
+            return
+            
+        result = response.json()
+        if result.get('opcode') == 0x00:
+            print(f'✓ Role "{role_name}" assigned to user "{username}" in chat "{chat_name}" successfully!')
+        else:
+            error_code = result.get('error_opcode')
+            if error_code == 0x26:
+                print('✗ Invalid chat name - chat does not exist')
+            elif error_code == 0x27:
+                print('✗ Invalid role name - role does not exist in this chat')
+            elif error_code == 0x28:
+                print('✗ Invalid username - user does not exist or is not in the chat')
+            elif error_code == 0x49:
+                print('✗ Insufficient permissions - only the chat creator can assign roles')
+            else:
+                print(f'✗ Error assigning role (code: {error_code})')
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON response. Raw response: {response.text}")
+    except Exception as e:
+        print(f"Connection error: {e}")
+
+def remove_role_from_user(auth_token):
+    print("\n=== Remove Role from User in Chat ===")
+    chat_name = input("Enter chat name: ")
+    role_name = input("Enter role name: ")
+    username = input("Enter username to remove role from: ")
+    
+    url = f'{BASE_URL}/remove-role-from-user'
+    payload = {
+        'authentication_token': auth_token,
+        'opcode': 0x15,
+        'chat_name': chat_name,
+        'role_name': role_name,
+        'username_to_remove': username
+    }
+    
+    try:
+        print(f"Sending request to remove role '{role_name}' from user '{username}' in chat {chat_name}...")
+        response = requests.post(url, json=payload)
+        
+        # Check if the request was successful
+        if response.status_code != 200:
+            print(f"Server returned status code: {response.status_code}")
+            if response.status_code == 404:
+                print("Error: Endpoint not found. Make sure the server is running and the endpoint is registered.")
+                return
+            print(f"Response text: {response.text}")
+            return
+            
+        result = response.json()
+        if result.get('opcode') == 0x00:
+            print(f'✓ Role "{role_name}" removed from user "{username}" in chat "{chat_name}" successfully!')
+        else:
+            error_code = result.get('error_opcode')
+            if error_code == 0x29:
+                print('✗ Invalid chat name - chat does not exist')
+            elif error_code == 0x30:
+                print('✗ Invalid role name - role does not exist or is not assigned to this user')
+            elif error_code == 0x31:
+                print('✗ Invalid username - user does not exist, is not in the chat, or has no roles')
+            elif error_code == 0x49:
+                print('✗ Insufficient permissions - only the chat creator can remove roles')
+            else:
+                print(f'✗ Error removing role (code: {error_code})')
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON response. Raw response: {response.text}")
+    except Exception as e:
+        print(f"Connection error: {e}")
+
+def poke_user(auth_token):
+    print("\n=== Poke User in Chat ===")
+    chat_name = input("Enter chat name: ")
+    username = input("Enter username to poke: ")
+    
+    url = f'{BASE_URL}/poke-user'
+    payload = {
+        'authentication_token': auth_token,
+        'opcode': 0x19,
+        'chat_name': chat_name,
+        'username_to_poke': username
+    }
+    
+    try:
+        print(f"Sending poke to user '{username}' in chat {chat_name}...")
+        response = requests.post(url, json=payload)
+        
+        # Check if the request was successful
+        if response.status_code != 200:
+            print(f"Server returned status code: {response.status_code}")
+            if response.status_code == 404:
+                print("Error: Endpoint not found. Make sure the server is running and the endpoint is registered.")
+                return
+            print(f"Response text: {response.text}")
+            return
+            
+        result = response.json()
+        if result.get('opcode') == 0x00:
+            print(f'✓ You poked {username} in chat "{chat_name}" successfully!')
+        else:
+            error_code = result.get('error_opcode')
+            if error_code == 0x38:
+                print('✗ Invalid chat name - chat does not exist')
+            elif error_code == 0x39:
+                print('✗ Invalid username - user does not exist, is not in the chat, or you tried to poke yourself')
+            elif error_code == 0x49:
+                print('✗ Insufficient permissions - you are not a member of this chat')
+            else:
+                print(f'✗ Error poking user (code: {error_code})')
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON response. Raw response: {response.text}")
+    except Exception as e:
+        print(f"Connection error: {e}")
+
+def check_pokes(auth_token, username):
+    print("\n=== Check Pokes ===")
+    chat_name = input("Enter chat name to check for pokes: ")
+    
+    # We'll use the existing view_chat_messages function to check for pokes,
+    # but add special handling to highlight pokes directed at the current user
+    url = f'{BASE_URL}/get-messages'
+    payload = {
+        'authentication_token': auth_token,
+        'opcode': 0x11,
+        'chat_name': chat_name,
+        'limit': 20  # Request up to 20 most recent messages
+    }
+    
+    try:
+        print(f"Checking for pokes in chat {chat_name}...")
+        response = requests.post(url, json=payload)
+        
+        # Check if the request was successful
+        if response.status_code != 200:
+            print(f"Server returned status code: {response.status_code}")
+            return
+            
+        result = response.json()
+        if result.get('opcode') == 0x00:
+            messages = result.get('messages', [])
+            if not messages:
+                print(f"No messages or pokes found in chat '{chat_name}'")
+                return
+                
+            # Filter for poke messages where the current user was poked
+            pokes = [msg for msg in messages if msg.get('type') == 0x01 and username in msg.get('content')]
+            
+            if not pokes:
+                print(f"No pokes directed at you found in chat '{chat_name}'")
+                return
+                
+            print(f"\n=== Pokes in '{chat_name}' ===")
+            print("Most recent pokes first:\n")
+            for i, poke in enumerate(pokes):
+                timestamp = poke.get('timestamp', 'Unknown time')
+                content = poke.get('content', '')
+                print(f"{i+1}. [{timestamp}] 👉 {content}")
+        else:
+            error_code = result.get('error_opcode')
+            if error_code == 0x17:
+                print('✗ Invalid chat name - chat does not exist')
+            elif error_code == 0x49:
+                print('✗ Insufficient permissions - you are not a member of this chat')
+            else:
+                print(f'✗ Error checking pokes (code: {error_code})')
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON response. Raw response: {response.text}")
+    except Exception as e:
+        print(f"Connection error: {e}")
+
 def main():
             while True:
                 print("\n=== Main Menu ===")
@@ -575,7 +776,11 @@ def main():
                             print("9. Edit Message")
                             print("10. Delete Message")
                             print("11. Create Role")
-                            print("12. Logout")
+                            print("12. Add Role to User")
+                            print("13. Remove Role from User")
+                            print("14. Poke User")
+                            print("15. Check Pokes")
+                            print("16. Logout")
                             auth_choice = input("Enter choice: ")
                             
                             if auth_choice == '1':
@@ -601,6 +806,14 @@ def main():
                             elif auth_choice == '11':
                                 create_role(auth_token)
                             elif auth_choice == '12':
+                                add_role_to_user(auth_token)
+                            elif auth_choice == '13':
+                                remove_role_from_user(auth_token)
+                            elif auth_choice == '14':
+                                poke_user(auth_token)
+                            elif auth_choice == '15':
+                                check_pokes(auth_token, username)
+                            elif auth_choice == '16':
                                 print("Logging out...")
                                 break
                             else:
