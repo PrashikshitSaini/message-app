@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Messaging App</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <link
+      href="https://fonts.googleapis.com/icon?family=Material+Icons"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="app-container">
+      <div class="auth-container" id="authContainer">
+        <h1>Messaging App</h1>
+
+        <div class="auth-tabs">
+          <button class="auth-tab active" data-tab="login">Login</button>
+          <button class="auth-tab" data-tab="register">Register</button>
+        </div>
+
+        <div class="auth-form-container">
+          <form id="loginForm" class="auth-form">
+            <div class="form-group">
+              <label for="loginUsername">Username</label>
+              <input type="text" id="loginUsername" required />
+            </div>
+            <div class="form-group">
+              <label for="loginPassword">Password</label>
+              <input type="password" id="loginPassword" required />
+            </div>
+            <button type="submit" class="btn primary">Login</button>
+          </form>
+
+          <form id="registerForm" class="auth-form hidden">
+            <div class="form-group">
+              <label for="registerUsername">Username</label>
+              <input type="text" id="registerUsername" required />
+            </div>
+            <div class="form-group">
+              <label for="registerPassword">Password</label>
+              <input type="password" id="registerPassword" required />
+            </div>
+            <div class="form-group">
+              <label for="confirmPassword">Confirm Password</label>
+              <input type="password" id="confirmPassword" required />
+            </div>
+            <button type="submit" class="btn primary">Create Account</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="main-container hidden" id="mainContainer">
+        <div class="sidebar">
+          <div class="sidebar-header">
+            <h2>Chats</h2>
+            <button id="createChatBtn" class="btn icon-btn">
+              <span class="material-icons">add</span>
+            </button>
+          </div>
+          <div class="chat-list" id="chatList">
+            <!-- Chat list will be populated here -->
+          </div>
+          <div class="user-info">
+            <span id="currentUsername">Username</span>
+            <button id="logoutBtn" class="btn secondary small">Logout</button>
+          </div>
+        </div>
+
+        <div class="chat-container">
+          <div class="chat-header">
+            <h2 id="currentChatName">Select a chat</h2>
+            <div class="chat-actions">
+              <button id="addUserBtn" class="btn icon-btn" title="Add User">
+                <span class="material-icons">person_add</span>
+              </button>
+              <button
+                id="manageRolesBtn"
+                class="btn icon-btn"
+                title="Manage Roles"
+              >
+                <span class="material-icons">admin_panel_settings</span>
+              </button>
+              <button
+                id="chatSettingsBtn"
+                class="btn icon-btn"
+                title="Chat Settings"
+              >
+                <span class="material-icons">more_vert</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="messages-container" id="messagesContainer">
+            <!-- Messages will be displayed here -->
+            <div class="empty-state">
+              Select a chat or create a new one to start messaging
+            </div>
+          </div>
+
+          <div class="message-input-container">
+            <input
+              type="text"
+              id="messageInput"
+              placeholder="Type a message..."
+              disabled
+            />
+            <div class="message-actions">
+              <button
+                id="pokeBtn"
+                class="btn icon-btn"
+                title="Poke User"
+                disabled
+              >
+                <span class="material-icons">back_hand</span>
+              </button>
+              <button id="sendMessageBtn" class="btn primary" disabled>
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal" id="createChatModal">
+      <div class="modal-content">
+        <h3>Create New Chat</h3>
+        <form id="createChatForm">
+          <div class="form-group">
+            <label for="chatName">Chat Name</label>
+            <input type="text" id="chatName" required />
+          </div>
+          <div class="modal-actions">
+            <button
+              type="button"
+              class="btn secondary"
+              id="cancelCreateChatBtn"
+            >
+              Cancel
+            </button>
+            <button type="submit" class="btn primary">Create</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal" id="addUserModal">
+      <div class="modal-content">
+        <h3>Add User to Chat</h3>
+        <form id="addUserForm">
+          <div class="form-group">
+            <label for="addUsername">Username</label>
+            <input type="text" id="addUsername" required />
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn secondary" id="cancelAddUserBtn">
+              Cancel
+            </button>
+            <button type="submit" class="btn primary">Add User</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal" id="pokeUserModal">
+      <div class="modal-content">
+        <h3>Poke User</h3>
+        <form id="pokeUserForm">
+          <div class="form-group">
+            <label for="pokeUsername">Username to Poke</label>
+            <input type="text" id="pokeUsername" required />
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn secondary" id="cancelPokeBtn">
+              Cancel
+            </button>
+            <button type="submit" class="btn primary">Poke!</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal" id="roleManagementModal">
+      <div class="modal-content wide">
+        <h3>Role Management</h3>
+        <div class="tabs">
+          <button class="tab active" data-tab="createRole">Create Role</button>
+          <button class="tab" data-tab="assignRole">Assign Role</button>
+          <button class="tab" data-tab="removeRole">Remove Role</button>
+        </div>
+        <div class="tab-content">
+          <form
+            id="createRoleForm"
+            class="tab-pane active"
+            data-tab="createRole"
+          >
+            <div class="form-group">
+              <label for="newRoleName">Role Name</label>
+              <input type="text" id="newRoleName" required />
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn secondary close-modal">
+                Cancel
+              </button>
+              <button type="submit" class="btn primary">Create Role</button>
+            </div>
+          </form>
+
+          <form
+            id="assignRoleForm"
+            class="tab-pane hidden"
+            data-tab="assignRole"
+          >
+            <div class="form-group">
+              <label for="roleToAssign">Role</label>
+              <select id="roleToAssign" required></select>
+            </div>
+            <div class="form-group">
+              <label for="userToAssign">Username</label>
+              <input type="text" id="userToAssign" required />
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn secondary close-modal">
+                Cancel
+              </button>
+              <button type="submit" class="btn primary">Assign Role</button>
+            </div>
+          </form>
+
+          <form
+            id="removeRoleForm"
+            class="tab-pane hidden"
+            data-tab="removeRole"
+          >
+            <div class="form-group">
+              <label for="roleToRemove">Role</label>
+              <select id="roleToRemove" required></select>
+            </div>
+            <div class="form-group">
+              <label for="userToRemoveFrom">Username</label>
+              <input type="text" id="userToRemoveFrom" required />
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn secondary close-modal">
+                Cancel
+              </button>
+              <button type="submit" class="btn primary">Remove Role</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="chatSettingsModal">
+      <div class="modal-content">
+        <h3>Chat Settings</h3>
+        <div class="settings-actions">
+          <button id="generateInviteLinkBtn" class="btn primary">
+            Generate Invite Link
+          </button>
+          <button id="removeUserBtn" class="btn danger">Remove User</button>
+          <button id="leaveChatBtn" class="btn warning">Leave Chat</button>
+          <button id="deleteChatBtn" class="btn danger">Delete Chat</button>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn secondary close-modal">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- New modal for showing the invite link -->
+    <div class="modal" id="inviteLinkModal">
+      <div class="modal-content">
+        <h3>Chat Invite Link</h3>
+        <div class="form-group">
+          <label for="inviteLinkInput">Share this link to invite others:</label>
+          <div class="invite-link-container">
+            <input type="text" id="inviteLinkInput" readonly />
+            <button id="copyInviteLinkBtn" class="btn primary">Copy</button>
+          </div>
+          <p class="note">Only the chat creator can generate invite links.</p>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn secondary close-modal">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="editMessageModal">
+      <div class="modal-content">
+        <h3>Edit Message</h3>
+        <form id="editMessageForm">
+          <div class="form-group">
+            <label for="editMessageInput">Message</label>
+            <input type="text" id="editMessageInput" required />
+          </div>
+          <div class="modal-actions">
+            <button
+              type="button"
+              class="btn secondary"
+              id="cancelEditMessageBtn"
+            >
+              Cancel
+            </button>
+            <button type="submit" class="btn primary">Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="toast hidden" id="toast"></div>
+    <div class="modal" id="blockedUsersModal">
+      <div class="modal-content">
+        <h3>Blocked Users</h3>
+        <div id="blockedUsersList" class="blocked-users-list">
+          <!-- Blocked users will be listed here -->
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn secondary close-modal">Close</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal" id="errorModal">
+      <div class="modal-content">
+        <h3 id="errorModalTitle">Error</h3>
+        <div class="error-container">
+          <div class="error-icon">
+            <span class="material-icons">error</span>
+          </div>
+          <p id="errorModalMessage">An error occurred.</p>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn primary close-modal">OK</button>
+        </div>
+      </div>
+    </div>
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>
