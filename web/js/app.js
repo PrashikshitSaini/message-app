@@ -78,11 +78,16 @@ authTabs.forEach((tab) => {
   });
 });
 
-// Login form submission
+// Login form submission with enhanced error handling
 loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const username = document.getElementById("loginUsername").value;
   const password = document.getElementById("loginPassword").value;
+
+  if (!username || !password) {
+    showToast("Username and password are required", "error");
+    return;
+  }
 
   try {
     showToast("Logging in...", "info");
@@ -91,6 +96,17 @@ loginForm.addEventListener("submit", async (e) => {
 
     if (handleApiError(data)) {
       if (data.authentication_token) {
+        // Validate and securely store the authentication token
+        const validToken = AuthUtils.storeToken(data.authentication_token);
+        if (!validToken) {
+          showErrorModal(
+            "Authentication Error",
+            "Server returned an invalid authentication token format."
+          );
+          return;
+        }
+
+        // Store the valid token
         authToken = data.authentication_token;
         currentUsername = username;
         currentUsernameSpan.innerText = username;
@@ -106,6 +122,12 @@ loginForm.addEventListener("submit", async (e) => {
           joinChatViaInviteLink(pendingInviteLink);
           localStorage.removeItem("pendingInviteLink");
         }
+      } else {
+        // This shouldn't happen with proper server response, but just in case
+        showErrorModal(
+          "Authentication Error",
+          "Server did not return a valid authentication token."
+        );
       }
     }
   } catch (error) {
@@ -129,8 +151,21 @@ registerForm.addEventListener("submit", async (e) => {
     return;
   }
 
-  if (password.length < 6) {
-    showToast("Password must be at least 6 characters", "error");
+  // Add stronger password validation
+  if (password.length < 8) {
+    showToast("Password must be at least 8 characters", "error");
+    return;
+  }
+
+  // Check for password complexity - require at least one number and one special character
+  const hasNumber = /\d/.test(password);
+  const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+
+  if (!hasNumber || !hasSpecial) {
+    showToast(
+      "Password must contain at least one number and one special character",
+      "error"
+    );
     return;
   }
 
@@ -1310,8 +1345,23 @@ function handleApiError(data, defaultMessage = "An error occurred") {
     );
 
     // For authentication errors, show in modal
-    if (errorOpcode === 0x48 || opcode === 0x00 || opcode === 0x01) {
+    if (
+      errorOpcode === 0x48 ||
+      errorOpcode === 0x03 ||
+      opcode === 0x00 ||
+      opcode === 0x01
+    ) {
+      // Special case for invalid credentials
+      if (errorOpcode === 0x03 && opcode === 0x00) {
+        showToast("Invalid username or password", "error");
+        // Focus the password field for retry
+        document.getElementById("loginPassword").focus();
+        document.getElementById("loginPassword").select();
+        return false;
+      }
+
       showErrorModal("Authentication Error", errorMessage);
+
       // If it's an authentication error, also logout the user
       if (errorOpcode === 0x48) {
         logoutUser();

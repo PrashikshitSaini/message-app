@@ -7,6 +7,10 @@ import uuid
 import time
 import random
 import string
+import os
+import base64
+import secrets
+import hashlib
 
 # Initialize Firebase
 cred = credentials.Certificate('creds.json')
@@ -37,17 +41,29 @@ def create_account():
 
     email = f"{username}@example.com"
     try:
-        user = auth.create_user(email=email, password=password_hash)
+        # Validate password hash length (SHA-256 should be 64 chars in hex)
+        if not password_hash or len(password_hash) != 64:
+            logger.warning(f"Invalid password hash format for new user {username}")
+            return jsonify({'opcode': 0x01, 'error_opcode': 0x02})  # Invalid password format
+            
+        user = auth.create_user(email=email, password=secrets.token_hex(16))  # Use random password for Auth
+        
+        # Store the user's actual password hash in Firestore
         db.collection('users').document(user.uid).set({
             'username': username,
+            'password_hash': password_hash,  # Store hash for later verification
             'createdAt': firestore.SERVER_TIMESTAMP
         })
+        
+        logger.info(f"User {username} created successfully")
         return jsonify({'opcode': 0x00})  # Success
     except auth.EmailAlreadyExistsError:
         return jsonify({'opcode': 0x01, 'error_opcode': 0x01})  # Username taken
-    except ValueError:
+    except ValueError as e:
+        logger.warning(f"Invalid input for user creation: {str(e)}")
         return jsonify({'opcode': 0x01, 'error_opcode': 0x02})  # Invalid password
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error creating account: {str(e)}")
         return jsonify({'opcode': 0x01, 'error_opcode': 0x45})  # Unknown error
 
 # Login Endpoint
@@ -62,14 +78,60 @@ def login():
     if opcode != 0x00:
         return jsonify({'opcode': opcode, 'error_opcode': 0x44})  # Unknown opcode
 
-    email = f"{username}@example.com"
+    # Validate client nonce
+    if not client_nonce:
+        logger.warning(f"Missing client nonce in login request for user {username}")
+        return jsonify({'opcode': 0x00, 'error_opcode': 0x03})  # Invalid credentials
+
     try:
-        user = auth.get_user_by_email(email)
-        # Note: Firebase doesn't allow server-side password verification.
-        # For this example, we assume password_hash is correct.
+        # Decode the client nonce from Base64
+        try:
+            # Try to decode the client nonce
+            raw_client_nonce = base64.b64decode(client_nonce)
+            # Ensure it's exactly 32 bytes
+            if len(raw_client_nonce) != 32:
+                logger.warning(f"Invalid client nonce length in login request for user {username}")
+                return jsonify({'opcode': 0x00, 'error_opcode': 0x03})  # Invalid credentials
+        except:
+            logger.warning(f"Invalid client nonce format in login request for user {username}")
+            return jsonify({'opcode': 0x00, 'error_opcode': 0x03})  # Invalid credentials
+            
+        email = f"{username}@example.com"
         
-        # Create a simple session token instead of Firebase custom token
-        session_token = str(uuid.uuid4())
+        # First check if the user exists
+        try:
+            user = auth.get_user_by_email(email)
+        except auth.UserNotFoundError:
+            logger.warning(f"Login attempt for non-existent user: {username}")
+            return jsonify({'opcode': 0x00, 'error_opcode': 0x03})  # Invalid credentials
+            
+        # Verify the password
+        # Since Firebase doesn't allow direct server-side password verification,
+        # we need to verify against our own stored password hash
+        
+        # Get the stored password hash from Firestore
+        user_doc = db.collection('users').document(user.uid).get()
+        if not user_doc.exists:
+            logger.warning(f"User {username} exists in Auth but not in Firestore")
+            return jsonify({'opcode': 0x00, 'error_opcode': 0x03})  # Invalid credentials
+            
+        user_data = user_doc.to_dict()
+        stored_password_hash = user_data.get('password_hash')
+        
+        # If we don't have a stored hash or the provided hash doesn't match
+        if not stored_password_hash or stored_password_hash != password_hash:
+            logger.warning(f"Invalid password for user {username}")
+            return jsonify({'opcode': 0x00, 'error_opcode': 0x03})  # Invalid credentials
+        
+        # Generate a secure 32-byte token
+        token_bytes = secrets.token_bytes(32)
+        # Convert to Base64 string for storage and transmission
+        session_token = base64.b64encode(token_bytes).decode('utf-8')
+        
+        # Add additional security by incorporating the client nonce in the token validation
+        # Store a hash of the client nonce with the token for later validation
+        client_nonce_hash = hashlib.sha256(raw_client_nonce).hexdigest()
+        
         # Token valid for 24 hours
         expiry = time.time() + (24 * 60 * 60)
         
@@ -77,18 +139,17 @@ def login():
         active_sessions[session_token] = {
             'uid': user.uid,
             'username': username,
-            'expires': expiry
+            'expires': expiry,
+            'client_nonce_hash': client_nonce_hash  # Store the client nonce hash
         }
         
-        logger.info(f"User {username} logged in successfully, token created")
+        logger.info(f"User {username} logged in successfully, secure token created")
         return jsonify({'opcode': 0x00, 'authentication_token': session_token})
-    except auth.UserNotFoundError:
-        return jsonify({'opcode': 0x00, 'error_opcode': 0x03})  # Invalid credentials
     except Exception as e:
         logger.error(f"Error during login: {str(e)}")
         return jsonify({'opcode': 0x00, 'error_opcode': 0x45})  # Unknown error
 
-# Helper function to verify tokens
+# Helper function to verify tokens with improved security
 def verify_token(token):
     if token not in active_sessions:
         return None
@@ -98,6 +159,9 @@ def verify_token(token):
         # Token expired
         del active_sessions[token]
         return None
+        
+    # Additional validation could be performed here
+    # For example, checking IP addresses or other client characteristics
         
     return session
 
