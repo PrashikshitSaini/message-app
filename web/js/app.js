@@ -1132,15 +1132,9 @@ async function updateChatSettingsForRole() {
   console.log("Is creator:", isCreator); // Add this line for debugging
 
   // Show/hide generate invite link button based on creator status
-  if (isCreator) {
-    generateInviteLinkBtn.style.display = "block";
-    deleteChatBtn.style.display = "block";
-    removeUserBtn.style.display = "block";
-  } else {
-    generateInviteLinkBtn.style.display = "none";
-    deleteChatBtn.style.display = "none";
-    removeUserBtn.style.display = "none";
-  }
+  generateInviteLinkBtn.style.display = isCreator ? "block" : "none";
+  deleteChatBtn.style.display = isCreator ? "block" : "none";
+  removeUserBtn.style.display = isCreator ? "block" : "none";
 
   // Always show leave chat button for non-creators
   leaveChatBtn.style.display = isCreator ? "none" : "block";
@@ -1542,3 +1536,49 @@ async function loadBlockedUsers() {
       '<div class="error-state">Error connecting to server</div>';
   }
 }
+
+// Get references to the invite link elements
+const generateInviteLinkBtn = document.getElementById("generateInviteLinkBtn");
+const inviteLinkModal = document.getElementById("inviteLinkModal");
+const inviteLinkInput = document.getElementById("inviteLinkInput");
+const copyInviteLinkBtn = document.getElementById("copyInviteLinkBtn");
+
+// Add event listener for generating invite links
+generateInviteLinkBtn.addEventListener("click", async () => {
+  if (!currentChat) {
+    showToast("Please select a chat first", "error");
+    return;
+  }
+
+  try {
+    showToast("Generating invite link...", "info");
+    const data = await API.generateInviteLink(authToken, currentChat);
+
+    if (handleApiError(data)) {
+      // Format the invite link as a full URL that can be shared
+      const baseUrl = window.location.origin + window.location.pathname;
+      const fullInviteLink = `${baseUrl}?join=${data.invite_link}`;
+
+      // Show the modal with the link
+      inviteLinkInput.value = fullInviteLink;
+      openModal(inviteLinkModal);
+
+      // Select the text for easy copying
+      inviteLinkInput.select();
+
+      showToast("Invite link generated successfully", "success");
+    }
+  } catch (error) {
+    console.error("Error generating invite link:", error);
+    showToast("Network error while generating invite link", "error");
+  }
+});
+
+// Add event listener for copying the invite link
+copyInviteLinkBtn.addEventListener("click", () => {
+  inviteLinkInput.select();
+  document.execCommand("copy");
+  // Alternative for modern browsers:
+  // navigator.clipboard.writeText(inviteLinkInput.value);
+  showToast("Invite link copied to clipboard", "success");
+});
