@@ -17,7 +17,7 @@ const Protocol = {
   serializeInt(value) {
     const buffer = new ArrayBuffer(4);
     const view = new DataView(buffer);
-    view.setInt32(0, value, false); // false = big-endian
+    view.setInt32(0, value, false); // big-endian
     return buffer;
   },
 
@@ -29,38 +29,35 @@ const Protocol = {
    */
   deserializeInt(buffer, offset = 0) {
     const view = new DataView(buffer);
-    return view.getInt32(offset, false); // false = big-endian
+    return view.getInt32(offset, false); // big-endian
   },
 
   /**
-   * Serializes a string to an ArrayBuffer with length prefix
+   * Serializes a string to an ArrayBuffer
    * @param {string} str - String to serialize
-   * @returns {ArrayBuffer} ArrayBuffer containing length + UTF-8 string
+   * @returns {ArrayBuffer} Serialized string (length + bytes)
    */
   serializeString(str) {
-    // Convert string to UTF-8 bytes
     const encoder = new TextEncoder();
     const strBytes = encoder.encode(str);
-
-    // Create buffer to hold length + string bytes
-    const buffer = new ArrayBuffer(4 + strBytes.length);
+    const buffer = new ArrayBuffer(4 + strBytes.byteLength);
     const view = new DataView(buffer);
 
-    // Write length as 4-byte integer
-    view.setInt32(0, strBytes.length, false);
+    // Write string length
+    view.setInt32(0, strBytes.byteLength, false);
 
-    // Copy string bytes
-    const uint8View = new Uint8Array(buffer, 4);
-    uint8View.set(strBytes);
+    // Write string bytes
+    const uint8Array = new Uint8Array(buffer, 4);
+    uint8Array.set(strBytes);
 
     return buffer;
   },
 
   /**
-   * Deserializes an ArrayBuffer containing a length-prefixed string
+   * Deserializes a string from an ArrayBuffer
    * @param {ArrayBuffer} buffer - Buffer containing the string
    * @param {number} offset - Offset in the buffer
-   * @returns {object} Object with the deserialized string and the new offset
+   * @returns {object} Object with string and new offset
    */
   deserializeString(buffer, offset = 0) {
     const view = new DataView(buffer);
@@ -68,35 +65,25 @@ const Protocol = {
     offset += 4;
 
     const bytes = new Uint8Array(buffer, offset, length);
-    const decoder = new TextDecoder("utf-8");
-    const string = decoder.decode(bytes);
+    const decoder = new TextDecoder();
+    const str = decoder.decode(bytes);
 
-    return {
-      value: string,
-      offset: offset + length,
-    };
+    return { string: str, newOffset: offset + length };
   },
 
   /**
    * Concatenates multiple ArrayBuffers
-   * @param {...ArrayBuffer} buffers - ArrayBuffers to concatenate
-   * @returns {ArrayBuffer} - Combined ArrayBuffer
+   * @param {...ArrayBuffer} buffers - Buffers to concatenate
+   * @returns {ArrayBuffer} Concatenated buffer
    */
   concatenateBuffers(...buffers) {
-    // Calculate total size
-    let totalLength = 0;
-    for (const buffer of buffers) {
-      totalLength += buffer.byteLength;
-    }
-
-    // Create new buffer with total size
+    const totalLength = buffers.reduce((acc, buf) => acc + buf.byteLength, 0);
     const result = new ArrayBuffer(totalLength);
-    const resultView = new Uint8Array(result);
+    const uint8Array = new Uint8Array(result);
 
-    // Copy individual buffers
     let offset = 0;
     for (const buffer of buffers) {
-      resultView.set(new Uint8Array(buffer), offset);
+      uint8Array.set(new Uint8Array(buffer), offset);
       offset += buffer.byteLength;
     }
 

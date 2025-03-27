@@ -9,6 +9,7 @@
       href="https://fonts.googleapis.com/icon?family=Material+Icons"
       rel="stylesheet"
     />
+    <link rel="stylesheet" href="css/normalize.css" />
   </head>
   <body>
     <div class="app-container">
@@ -337,6 +338,24 @@
         </div>
       </div>
     </div>
+
+    <!-- Display name preferences modal -->
+    <div class="modal" id="displayNamesModal">
+      <div class="modal-content">
+        <h3>Custom Display Names</h3>
+        <p class="note">These display names are only visible to you</p>
+        <div id="displayNamesList" class="custom-names-list">
+          <!-- Custom display names will be listed here -->
+        </div>
+        <div class="modal-actions">
+          <button id="clearDisplayNamesBtn" class="btn danger">
+            Reset All
+          </button>
+          <button type="button" class="btn secondary close-modal">Close</button>
+        </div>
+      </div>
+    </div>
+
     <script src="js/auth-utils.js"></script>
     <script src="js/protocol.js"></script>
     <script src="js/api.js"></script>

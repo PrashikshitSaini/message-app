@@ -94,41 +94,42 @@ loginForm.addEventListener("submit", async (e) => {
     const passwordHash = await sha256(password);
     const data = await API.login(username, passwordHash);
 
-    if (handleApiError(data)) {
-      if (data.authentication_token) {
-        // Validate and securely store the authentication token
-        const validToken = AuthUtils.storeToken(data.authentication_token);
-        if (!validToken) {
-          showErrorModal(
-            "Authentication Error",
-            "Server returned an invalid authentication token format."
-          );
-          return;
-        }
-
-        // Store the valid token
-        authToken = data.authentication_token;
-        currentUsername = username;
-        currentUsernameSpan.innerText = username;
-        authContainer.classList.add("hidden");
-        mainContainer.classList.remove("hidden");
-        loadChats(); // Load chats after login
-        showToast(`Welcome back, ${username}!`, "success");
-
-        // Check if there's a pending invite link
-        const pendingInviteLink = localStorage.getItem("pendingInviteLink");
-        if (pendingInviteLink) {
-          showToast("Joining chat via invite link...", "info");
-          joinChatViaInviteLink(pendingInviteLink);
-          localStorage.removeItem("pendingInviteLink");
-        }
-      } else {
-        // This shouldn't happen with proper server response, but just in case
+    // Check if we have a data object with an authentication token
+    if (data && data.authentication_token) {
+      // Validate the token format
+      if (!AuthUtils.validateTokenFormat(data.authentication_token)) {
         showErrorModal(
           "Authentication Error",
-          "Server did not return a valid authentication token."
+          "Server returned an invalid authentication token format."
         );
+        return;
       }
+
+      // Store the valid token
+      authToken = data.authentication_token;
+      currentUsername = username;
+      currentUsernameSpan.innerText = username;
+      authContainer.classList.add("hidden");
+      mainContainer.classList.remove("hidden");
+      loadChats(); // Load chats after login
+      showToast(`Welcome back, ${username}!`, "success");
+
+      // Check if there's a pending invite link
+      const pendingInviteLink = localStorage.getItem("pendingInviteLink");
+      if (pendingInviteLink) {
+        showToast("Joining chat via invite link...", "info");
+        joinChatViaInviteLink(pendingInviteLink);
+        localStorage.removeItem("pendingInviteLink");
+      }
+    } else if (data && data.error_opcode) {
+      // Handle specific error codes
+      handleApiError(data);
+    } else {
+      // This shouldn't happen with proper server response
+      showErrorModal(
+        "Authentication Error",
+        "Server returned an invalid response format."
+      );
     }
   } catch (error) {
     console.error("Login failed", error);
@@ -209,15 +210,22 @@ logoutBtn.addEventListener("click", () => {
   // Clear any other app state
   currentChat = null;
   currentMessageId = null;
+
+  // Optionally ask to clear display name preferences
+  if (confirm("Would you like to clear your custom display name settings?")) {
+    clearDisplayNamePreferences();
+  }
 });
 
 // Create Chat modal handling
 document
   .getElementById("createChatBtn")
   .addEventListener("click", () => openModal(createChatModal));
+
 cancelCreateChatBtn.addEventListener("click", () =>
   closeModal(createChatModal)
 );
+
 createChatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const chatName = document.getElementById("chatName").value;
@@ -249,7 +257,9 @@ createChatForm.addEventListener("submit", async (e) => {
 document
   .getElementById("addUserBtn")
   .addEventListener("click", () => openModal(addUserModal));
+
 cancelAddUserBtn.addEventListener("click", () => closeModal(addUserModal));
+
 addUserForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const chatName = currentChatName.innerText; // assuming currentChatName shows the active chat
@@ -271,7 +281,9 @@ addUserForm.addEventListener("submit", async (e) => {
 document
   .getElementById("pokeBtn")
   .addEventListener("click", () => openModal(pokeUserModal));
+
 cancelPokeBtn.addEventListener("click", () => closeModal(pokeUserModal));
+
 pokeUserForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const chatName = currentChatName.innerText;
@@ -316,7 +328,7 @@ messagesContainer.parentNode.insertBefore(
 // Utility: load messages for selected chat
 async function loadChatMessages(chatName, scrollToBottom = false) {
   try {
-    const data = await API.getMessages(authToken, chatName, 20);
+    const data = await API.getMessages(authToken, chatName);
     if (data.opcode === 0x00) {
       // Capture scroll position to maintain it unless we want to scroll to bottom
       const shouldScrollToBottom =
@@ -360,17 +372,11 @@ async function loadChatMessages(chatName, scrollToBottom = false) {
       }
     } else {
       const errorCode = data.error_opcode;
-      if (errorCode === 0x17) {
-        alert("Chat doesn't exist");
-      } else if (errorCode === 0x49) {
-        alert("You don't have permission to view this chat");
-      } else {
-        alert(`Error loading messages: code ${errorCode}`);
-      }
+      showToast(`Error loading messages: code ${errorCode}`, "error");
     }
   } catch (error) {
     console.error("Error loading messages", error);
-    alert("Failed to load messages. Check your connection.");
+    showToast("Failed to load messages. Check your connection.", "error");
   }
 }
 
@@ -422,8 +428,13 @@ function createMessageElement(msg, isPinnedDisplay = false) {
     rolesDisplay = `<div class="sender-roles">${rolesList}</div>`;
   }
 
-  // Determine what name to display (custom display name or original sender name)
-  const displayName = msg.display_name || msg.sender;
+  // Check for client-side display name overrides
+  const storageKey = `displayNames_${currentChat}`;
+  const displayNames = JSON.parse(localStorage.getItem(storageKey) || "{}");
+
+  // Determine what name to display (client-side display name or original sender name)
+  const displayName = displayNames[msg.sender] || msg.sender;
+  const hasCustomName = displayNames[msg.sender] ? true : false;
 
   if (msg.type === 0x01) {
     // Poke message
@@ -432,12 +443,12 @@ function createMessageElement(msg, isPinnedDisplay = false) {
       <div class="message-timestamp">${msg.timestamp || ""}</div>
     `;
   } else {
-    // Normal message
+    // Normal message - with client-side display name support
     div.innerHTML = `
       <div class="message-sender">
         ${displayName}
         ${
-          msg.display_name
+          hasCustomName
             ? `<span class="custom-name-indicator" title="Custom name for ${msg.sender}">✎</span>`
             : ""
         }
@@ -560,11 +571,11 @@ async function pinMessage(messageId, shouldUnpin = false) {
       `Error ${shouldUnpin ? "unpinning" : "pinning"} message`,
       error
     );
-    showErrorModal(
-      "Connection Error",
+    showToast(
       `Failed to ${
         shouldUnpin ? "unpin" : "pin"
-      } message. Please check your connection and try again.`
+      } message. Please check your connection.`,
+      "error"
     );
   }
 }
@@ -714,44 +725,126 @@ messagesContainer.addEventListener("contextmenu", (e) => {
   });
 });
 
-// Function to change a user's display name
+// Function to change a user's display name (client-side only)
 async function changeUserDisplayName(username, displayName) {
   if (!currentChat) {
     showToast("Select a chat first", "error");
     return;
   }
+
   try {
-    const data = await API.changeDisplayName(
-      authToken,
-      currentChat,
-      username,
-      displayName
+    // Save display name preference in localStorage
+    const storageKey = `displayNames_${currentChat}`;
+    let displayNames = JSON.parse(localStorage.getItem(storageKey) || "{}");
+
+    // Store the display name for this username in this chat
+    displayNames[username] = displayName;
+    localStorage.setItem(storageKey, JSON.stringify(displayNames));
+
+    showToast(
+      `Display name for ${username} changed to "${displayName}"`,
+      "success"
     );
-    if (data.opcode === 0x00) {
-      showToast(
-        `Display name for ${username} changed to "${displayName}"`,
-        "success"
-      );
-      loadChatMessages(currentChat); // Reload to show updated names
-    } else {
-      const errorCode = data.error_opcode;
-      if (errorCode === 0x12) {
-        showToast("Invalid chat name", "error");
-      } else if (errorCode === 0x13) {
-        showToast("Invalid display name or user not found", "error");
-      } else if (errorCode === 0x49) {
-        showToast(
-          "You don't have permission to change display names in this chat",
-          "error"
-        );
-      } else {
-        showToast(`Error changing display name: code ${errorCode}`, "error");
-      }
-    }
+
+    // Reload messages to show updated display names
+    loadChatMessages(currentChat);
   } catch (error) {
     console.error("Error changing display name", error);
-    showToast("Network error while changing display name", "error");
+    showToast("Error while changing display name", "error");
   }
+}
+
+// Add a function to clear display name preferences
+function clearDisplayNamePreferences() {
+  if (
+    confirm("This will reset all custom display names you've set. Continue?")
+  ) {
+    // Get all keys that start with "displayNames_"
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith("displayNames_"))
+      .forEach((key) => localStorage.removeItem(key));
+
+    // Reload current chat if any
+    if (currentChat) {
+      loadChatMessages(currentChat);
+    }
+
+    showToast("All custom display names have been reset", "success");
+  }
+}
+
+// Function to load and display custom display names
+function loadDisplayNamePreferences() {
+  const displayNamesList = document.getElementById("displayNamesList");
+  displayNamesList.innerHTML = "";
+
+  // Check if we have a current chat
+  if (!currentChat) {
+    displayNamesList.innerHTML =
+      '<div class="empty-state">Select a chat to view custom names</div>';
+    return;
+  }
+
+  // Get display names for the current chat
+  const storageKey = `displayNames_${currentChat}`;
+  const displayNames = JSON.parse(localStorage.getItem(storageKey) || "{}");
+
+  if (Object.keys(displayNames).length === 0) {
+    displayNamesList.innerHTML =
+      '<div class="empty-state">You haven\'t set any custom names in this chat</div>';
+    return;
+  }
+
+  // Create a list of display names
+  Object.entries(displayNames).forEach(([username, displayName]) => {
+    const nameItem = document.createElement("div");
+    nameItem.className = "display-name-item";
+    nameItem.innerHTML = `
+      <div class="name-info">
+        <div class="original-name">${username}</div>
+        <div class="custom-name">${displayName}</div>
+      </div>
+      <div class="name-actions">
+        <button class="edit-name-btn" data-username="${username}">
+          <span class="material-icons">edit</span>
+        </button>
+        <button class="remove-name-btn" data-username="${username}">
+          <span class="material-icons">delete</span>
+        </button>
+      </div>
+    `;
+    displayNamesList.appendChild(nameItem);
+  });
+
+  // Add event listeners for edit and remove buttons
+  displayNamesList.querySelectorAll(".edit-name-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const username = btn.dataset.username;
+      const currentName = displayNames[username];
+      const newName = prompt(`Edit display name for ${username}:`, currentName);
+
+      if (newName && newName.trim()) {
+        changeUserDisplayName(username, newName.trim());
+        loadDisplayNamePreferences(); // Reload the list
+      }
+    });
+  });
+
+  displayNamesList.querySelectorAll(".remove-name-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const username = btn.dataset.username;
+
+      if (confirm(`Remove custom display name for ${username}?`)) {
+        // Remove this display name
+        delete displayNames[username];
+        localStorage.setItem(storageKey, JSON.stringify(displayNames));
+
+        // Reload messages and display name list
+        loadChatMessages(currentChat);
+        loadDisplayNamePreferences();
+      }
+    });
+  });
 }
 
 // Utility: load chats
@@ -785,14 +878,12 @@ async function loadChats() {
 function startMessagePolling(chatName) {
   // Clear any existing polling interval first
   stopMessagePolling();
-
   // Set up new polling interval
   messagePollingInterval = setInterval(() => {
     if (chatName) {
       loadChatMessages(chatName);
     }
   }, POLLING_INTERVAL);
-
   console.log(`Started polling for messages in chat: ${chatName}`);
 }
 
@@ -805,7 +896,7 @@ function stopMessagePolling() {
   }
 }
 
-// When a chat item is clicked, select the chat and enable messaging
+// Improve the chat selection event listener to properly load messages
 chatList.addEventListener("click", (e) => {
   const chatItem = e.target.closest(".chat-item");
   if (!chatItem) return;
@@ -837,7 +928,6 @@ chatList.addEventListener("click", (e) => {
 sendMessageBtn.addEventListener("click", async () => {
   const chatName = currentChatName.innerText;
   const message = messageInput.value.trim();
-
   if (!message) {
     showToast("Message cannot be empty", "error");
     return;
@@ -845,7 +935,6 @@ sendMessageBtn.addEventListener("click", async () => {
 
   try {
     const data = await API.sendMessage(authToken, chatName, message);
-
     if (handleApiError(data)) {
       messageInput.value = "";
       loadChatMessages(chatName, true);
@@ -929,7 +1018,6 @@ manageRolesBtn.addEventListener("click", () => {
     alert("Please select a chat first");
     return;
   }
-
   // Populate role dropdowns before opening the modal
   populateRoleDropdowns();
   openModal(roleManagementModal);
@@ -1120,7 +1208,6 @@ chatSettingsBtn.addEventListener("click", async () => {
     showToast("Please select a chat first", "error");
     return;
   }
-
   await updateChatSettingsForRole();
   openModal(chatSettingsModal);
 });
@@ -1130,12 +1217,10 @@ async function updateChatSettingsForRole() {
   console.log("Updating chat settings for role"); // Add this line for debugging
   const isCreator = await checkChatCreatorStatus();
   console.log("Is creator:", isCreator); // Add this line for debugging
-
   // Show/hide generate invite link button based on creator status
   generateInviteLinkBtn.style.display = isCreator ? "block" : "none";
   deleteChatBtn.style.display = isCreator ? "block" : "none";
   removeUserBtn.style.display = isCreator ? "block" : "none";
-
   // Always show leave chat button for non-creators
   leaveChatBtn.style.display = isCreator ? "none" : "block";
 }
@@ -1158,7 +1243,6 @@ document
     const messageContent =
       messageDiv.querySelector(".message-content").innerText;
     document.getElementById("editMessageInput").value = messageContent;
-
     openModal(editMessageModal);
   });
 
@@ -1172,16 +1256,13 @@ editMessageForm.addEventListener("submit", async (e) => {
     showToast("Select a chat first", "error");
     return;
   }
-
   const updatedMessage = document
     .getElementById("editMessageInput")
     .value.trim();
-
   if (!updatedMessage) {
     showToast("Message cannot be empty", "error");
     return;
   }
-
   try {
     const data = await API.editMessage(
       authToken,
@@ -1194,16 +1275,7 @@ editMessageForm.addEventListener("submit", async (e) => {
       closeModal(editMessageModal);
       loadChatMessages(currentChat); // Reload messages to show the updated message
     } else {
-      const errorCode = data.error_opcode;
-      if (errorCode === 0x19) {
-        showToast("Invalid chat name", "error");
-      } else if (errorCode === 0x20) {
-        showToast("Invalid message ID", "error");
-      } else if (errorCode === 0x49) {
-        showToast("You don't have permission to edit this message", "error");
-      } else {
-        showToast(`Error editing message: code ${errorCode}`, "error");
-      }
+      handleApiError(data, "Error editing message");
     }
   } catch (error) {
     console.error("Edit message error", error);
@@ -1216,13 +1288,11 @@ messagesContainer.addEventListener("contextmenu", async (e) => {
   e.preventDefault();
   const messageDiv = e.target.closest(".message");
   if (!messageDiv) return;
-
   const messageId = messageDiv.dataset.messageId;
   if (!messageId) {
     console.warn("Message ID not found");
     return;
   }
-
   if (confirm("Are you sure you want to delete this message?")) {
     try {
       const data = await API.deleteMessage(authToken, currentChat, messageId);
@@ -1250,13 +1320,11 @@ function startChatListPolling() {
 // Start chat list polling after page load
 document.addEventListener("DOMContentLoaded", () => {
   startChatListPolling();
-
   // Check if there's an invite link in URL
   const joinParam = getUrlParameter("join");
   if (joinParam) {
     // Store the invite link to use after login
     localStorage.setItem("pendingInviteLink", joinParam);
-
     // Show a message to user
     const inviteBanner = document.createElement("div");
     inviteBanner.className = "invite-banner";
@@ -1282,6 +1350,24 @@ document.addEventListener("DOMContentLoaded", () => {
     await loadBlockedUsers();
     openModal(blockedUsersModal);
   });
+
+  // Add a button to the sidebar to manage display names
+  const manageDisplayNamesBtn = document.createElement("button");
+  manageDisplayNamesBtn.id = "manageDisplayNamesBtn";
+  manageDisplayNamesBtn.className = "btn icon-btn";
+  manageDisplayNamesBtn.title = "Manage Display Names";
+  manageDisplayNamesBtn.innerHTML = '<span class="material-icons">badge</span>';
+  userInfo.appendChild(manageDisplayNamesBtn);
+
+  manageDisplayNamesBtn.addEventListener("click", () => {
+    loadDisplayNamePreferences();
+    openModal(document.getElementById("displayNamesModal"));
+  });
+
+  // Add event listener for clearing display names
+  document
+    .getElementById("clearDisplayNamesBtn")
+    .addEventListener("click", clearDisplayNamePreferences);
 });
 
 // Helper function to show toast notifications
@@ -1296,10 +1382,9 @@ function showToast(message, type = "info") {
   else if (type === "warning") iconName = "warning";
 
   const content = `
-    <span class="toast-icon material-icons">${iconName}</span>
+    <span class="toast-icon material-icons">${iconName}</span> 
     <span class="toast-message">${message}</span>
   `;
-
   toast.innerHTML = content;
   toast.className = "toast"; // Reset classes
 
@@ -1333,35 +1418,30 @@ function handleApiError(data, defaultMessage = "An error occurred") {
 
   if (errorOpcode) {
     // Get user-friendly error message from API
-    const errorMessage = API.getErrorMessage(
-      opcode.toString(16),
-      errorOpcode.toString(16)
-    );
+    const errorMessage = API.getErrorMessage(opcode, errorOpcode);
 
     // For authentication errors, show in modal
     if (
-      errorOpcode === 0x48 ||
       errorOpcode === 0x03 ||
+      errorOpcode === 0x04 ||
+      errorOpcode === 0x48 ||
       opcode === 0x00 ||
       opcode === 0x01
     ) {
       // Special case for invalid credentials
-      if (errorOpcode === 0x03 && opcode === 0x00) {
+      if ((errorOpcode === 0x03 || errorOpcode === 0x04) && opcode === 0x00) {
         showToast("Invalid username or password", "error");
         // Focus the password field for retry
         document.getElementById("loginPassword").focus();
-        document.getElementById("loginPassword").select();
-        return false;
-      }
-
-      showErrorModal("Authentication Error", errorMessage);
-
-      // If it's an authentication error, also logout the user
-      if (errorOpcode === 0x48) {
-        logoutUser();
+      } else if (errorOpcode === 0x48) {
+        // Session expired
+        showToast("Your session has expired. Please login again.", "error");
+        logoutBtn.click(); // Force logout
+      } else {
+        showToast(errorMessage, "error");
       }
     } else {
-      // For other errors, use toast
+      // For other errors, show toast
       showToast(errorMessage, "error");
     }
     return false;
@@ -1493,10 +1573,8 @@ async function loadBlockedUsers() {
       '<div class="loading">Loading blocked users...</div>';
 
     const data = await API.getBlockedUsers(authToken);
-
     if (data.opcode === 0x00) {
       blockedUsersList.innerHTML = "";
-
       if (!data.blocked_users || data.blocked_users.length === 0) {
         blockedUsersList.innerHTML =
           '<div class="empty-state">No blocked users</div>';
@@ -1506,14 +1584,12 @@ async function loadBlockedUsers() {
       data.blocked_users.forEach((username) => {
         const userItem = document.createElement("div");
         userItem.className = "blocked-user-item";
-
         userItem.innerHTML = `
           <span class="blocked-username">${username}</span>
           <button class="unblock-btn" data-username="${username}">
             <span class="material-icons">person_add</span> Unblock
           </button>
         `;
-
         blockedUsersList.appendChild(userItem);
       });
 
@@ -1527,7 +1603,7 @@ async function loadBlockedUsers() {
         });
       });
     } else {
-      blockedUsersList.innerHTML =
+      document.getElementById("blockedUsersList").innerHTML =
         '<div class="error-state">Failed to load blocked users</div>';
     }
   } catch (error) {
@@ -1543,29 +1619,23 @@ const inviteLinkModal = document.getElementById("inviteLinkModal");
 const inviteLinkInput = document.getElementById("inviteLinkInput");
 const copyInviteLinkBtn = document.getElementById("copyInviteLinkBtn");
 
-// Add event listener for generating invite links
 generateInviteLinkBtn.addEventListener("click", async () => {
   if (!currentChat) {
     showToast("Please select a chat first", "error");
     return;
   }
-
+  showToast("Generating invite link...", "info");
   try {
-    showToast("Generating invite link...", "info");
     const data = await API.generateInviteLink(authToken, currentChat);
-
     if (handleApiError(data)) {
       // Format the invite link as a full URL that can be shared
       const baseUrl = window.location.origin + window.location.pathname;
       const fullInviteLink = `${baseUrl}?join=${data.invite_link}`;
-
-      // Show the modal with the link
       inviteLinkInput.value = fullInviteLink;
+      // Show the modal with the link
       openModal(inviteLinkModal);
-
       // Select the text for easy copying
       inviteLinkInput.select();
-
       showToast("Invite link generated successfully", "success");
     }
   } catch (error) {
@@ -1576,9 +1646,10 @@ generateInviteLinkBtn.addEventListener("click", async () => {
 
 // Add event listener for copying the invite link
 copyInviteLinkBtn.addEventListener("click", () => {
-  inviteLinkInput.select();
-  document.execCommand("copy");
   // Alternative for modern browsers:
-  // navigator.clipboard.writeText(inviteLinkInput.value);
+  navigator.clipboard.writeText(inviteLinkInput.value);
+  // Fallback for older browsers:
+  // document.execCommand("copy");
+  inviteLinkInput.select();
   showToast("Invite link copied to clipboard", "success");
 });

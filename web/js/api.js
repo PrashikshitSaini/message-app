@@ -8,9 +8,8 @@ const API = {
       const includeAuth = opcode !== 0x00 && opcode !== 0x01;
       const token = includeAuth ? authToken : null;
 
-      // We're still using JSON for transmission in this implementation
-      // In a real binary protocol implementation, we would use Protocol.createPacket
-      // and transmit binary data instead
+      // We're using JSON for transmission while supporting the binary protocol format
+      // In a real TCP implementation, we would use Protocol.createPacket and transmit binary data
 
       // Validate auth token format if we're including it
       if (token && !AuthUtils.validateTokenFormat(token)) {
@@ -33,9 +32,13 @@ const API = {
         body: JSON.stringify(requestData),
       });
 
+      if (!response.ok) {
+        throw new Error(`Network response was not ok: ${response.status}`);
+      }
+
       return await response.json();
     } catch (error) {
-      console.error(`API error in request to ${endpoint}:`, error);
+      console.error("API request failed:", error);
       throw error;
     }
   },
@@ -48,13 +51,18 @@ const API = {
   },
 
   async login(username, passwordHash) {
-    // Generate a secure 32-byte client nonce
-    const clientNonce = AuthUtils.generateSecureNonce();
+    // Generate 4 random integers as per protocol requirements
+    const randomNumbers = [
+      Math.floor(Math.random() * 0xffffffff),
+      Math.floor(Math.random() * 0xffffffff),
+      Math.floor(Math.random() * 0xffffffff),
+      Math.floor(Math.random() * 0xffffffff),
+    ];
 
     return this.makeRequest("/login", 0x00, null, {
       username,
       passwordHash,
-      clientNonce,
+      randomNumbers,
     });
   },
 
@@ -84,33 +92,51 @@ const API = {
     });
   },
 
+  async changeDisplayName(authToken, chatName, displayName) {
+    return this.makeRequest("/change-display-name", 0x06, authToken, {
+      chat_name: chatName,
+      display_name: displayName,
+    });
+  },
+
   async deleteChat(authToken, chatName) {
     return this.makeRequest("/delete-chat", 0x07, authToken, {
       chat_name: chatName,
     });
   },
 
-  async sendMessage(authToken, chatName, message) {
+  async blockUser(authToken, usernameToBlock) {
+    return this.makeRequest("/block-user", 0x08, authToken, {
+      username_to_block: usernameToBlock,
+    });
+  },
+
+  async unblockUser(authToken, usernameToUnblock) {
+    return this.makeRequest("/unblock-user", 0x09, authToken, {
+      username_to_unblock: usernameToUnblock,
+    });
+  },
+
+  async sendMessage(authToken, chatName, message, messageType = 0x00) {
     return this.makeRequest("/send-message", 0x10, authToken, {
       chat_name: chatName,
       message,
-      message_type: 0x00,
+      message_type: messageType,
     });
   },
 
-  async getMessages(authToken, chatName, limit = 50) {
-    return this.makeRequest("/get-messages", 0x11, authToken, {
-      chat_name: chatName,
-      limit,
-    });
-  },
-
-  async editMessage(authToken, chatName, messageId, updatedMessage) {
+  async editMessage(
+    authToken,
+    chatName,
+    messageId,
+    updatedMessage,
+    messageType = 0x00
+  ) {
     return this.makeRequest("/edit-message", 0x11, authToken, {
       chat_name: chatName,
       message_id: messageId,
       updated_message: updatedMessage,
-      updated_message_type: 0x00,
+      message_type: messageType,
     });
   },
 
@@ -128,31 +154,27 @@ const API = {
     });
   },
 
-  async addRoleToUser(authToken, chatName, roleName, usernameToAdd) {
+  async addRoleToUser(authToken, chatName, roleName, username) {
     return this.makeRequest("/add-role-to-user", 0x14, authToken, {
       chat_name: chatName,
       role_name: roleName,
-      username_to_add: usernameToAdd,
+      username: username,
     });
   },
 
-  async removeRoleFromUser(authToken, chatName, roleName, usernameToRemove) {
+  async removeRoleFromUser(authToken, chatName, roleName, username) {
     return this.makeRequest("/remove-role-from-user", 0x15, authToken, {
       chat_name: chatName,
       role_name: roleName,
-      username_to_remove: usernameToRemove,
+      username: username,
     });
   },
 
-  async pokeUser(authToken, chatName, usernameToPoke) {
-    return this.makeRequest("/poke-user", 0x19, authToken, {
+  async deleteRole(authToken, chatName, roleName) {
+    return this.makeRequest("/delete-role", 0x16, authToken, {
       chat_name: chatName,
-      username_to_poke: usernameToPoke,
+      role_name: roleName,
     });
-  },
-
-  async getChats(authToken) {
-    return this.makeRequest("/get-chats", 0x06, authToken);
   },
 
   async pinMessage(authToken, chatName, messageId) {
@@ -169,14 +191,27 @@ const API = {
     });
   },
 
-  async getRoles(authToken, chatName) {
-    return this.makeRequest("/get-roles", 0x16, authToken, {
+  async pokeUser(authToken, chatName, username) {
+    return this.makeRequest("/poke-user", 0x19, authToken, {
       chat_name: chatName,
+      username: username,
     });
   },
 
-  async generateInviteLink(authToken, chatName) {
-    return this.makeRequest("/generate-invite-link", 0x22, authToken, {
+  async getChats(authToken) {
+    return this.makeRequest("/get-chats", 0x20, authToken);
+  },
+
+  async getMessages(authToken, chatName, startIndex = 0, endIndex = -1) {
+    return this.makeRequest("/get-messages", 0x21, authToken, {
+      chat_name: chatName,
+      start_index: startIndex,
+      end_index: endIndex,
+    });
+  },
+
+  async createChatInviteLink(authToken, chatName) {
+    return this.makeRequest("/create-chat-invite-link", 0x22, authToken, {
       chat_name: chatName,
     });
   },
@@ -187,195 +222,141 @@ const API = {
     });
   },
 
-  async changeDisplayName(authToken, chatName, targetUsername, displayName) {
-    return this.makeRequest("/change-display-name", 0x06, authToken, {
-      chat_name: chatName,
-      target_username: targetUsername,
-      display_name: displayName,
-    });
-  },
-
-  async blockUser(authToken, usernameToBlock) {
-    return this.makeRequest("/block-user", 0x08, authToken, {
-      username_to_block: usernameToBlock,
-    });
-  },
-
   async getBlockedUsers(authToken) {
-    return this.makeRequest("/get-blocked-users", 0x0a, authToken);
+    return this.makeRequest("/get-blocked-users", 0x24, authToken);
   },
 
-  async unblockUser(authToken, usernameToUnblock) {
-    return this.makeRequest("/unblock-user", 0x09, authToken, {
-      username_to_unblock: usernameToUnblock,
+  async getRoles(authToken, chatName) {
+    return this.makeRequest("/get-roles", 0x25, authToken, {
+      chat_name: chatName,
     });
   },
 
-  // Helper methods
-  generateNonce() {
-    return AuthUtils.generateSecureNonce();
+  async generateInviteLink(authToken, chatName) {
+    return this.makeRequest("/create-chat-invite-link", 0x22, authToken, {
+      chat_name: chatName,
+    });
   },
 
-  // Error code to user-friendly message mapping
+  // Helper method to get user-friendly error messages
   getErrorMessage(opcode, errorOpcode) {
     const errorMessages = {
-      // Authentication errors
-      "0x00": {
-        "0x03": "Invalid username or password",
-        "0x45": "Server error during login",
+      1: {
+        1: "Username is already taken or restricted",
+        2: "Invalid password format",
       },
-      "0x01": {
-        "0x01": "Username already taken",
-        "0x02": "Invalid password format or complexity requirements not met",
-        "0x45": "Server error while creating account",
+      0: {
+        3: "Invalid username or password",
+        4: "Invalid username or password",
+        5: "Invalid client nonce",
       },
-      // Chat management errors
-      "0x02": {
-        "0x06": "Invalid chat name (minimum 3 characters required)",
-        "0x49": "You don't have permission to create chats",
-        "0x45": "Server error while creating chat",
+      2: {
+        21: "Chat name is not allowed or already exists",
       },
-      "0x03": {
-        "0x07": "Chat not found",
-        "0x08": "User not found",
-        "0x49": "You don't have permission to add users to this chat",
-        "0x45": "Server error while adding user to chat",
+      3: {
+        3: "Username does not exist",
+        11: "User is blocked",
+        22: "Invalid chat name or chat does not exist",
       },
-      "0x04": {
-        "0x09": "Chat not found",
-        "0x10": "User not found or not in this chat",
-        "0x49": "Only the chat creator can remove users",
-        "0x45": "Server error while removing user from chat",
+      4: {
+        3: "Username does not exist",
+        22: "Invalid chat name or chat does not exist",
       },
-      "0x05": {
-        "0x11": "Chat not found",
-        "0x49": "Chat creators cannot leave their own chat",
-        "0x45": "Server error while leaving chat",
+      5: {
+        22: "Invalid chat name or chat does not exist",
       },
-      "0x07": {
-        "0x14": "Chat not found",
-        "0x49": "Only the chat creator can delete the chat",
-        "0x45": "Server error while deleting chat",
+      6: {
+        22: "Invalid chat name or chat does not exist",
+        6: "Invalid or restricted display name",
       },
-      // Message management errors
-      "0x10": {
-        "0x17": "Chat not found",
-        "0x18": "Message cannot be empty",
-        "0x46": "Invalid message type",
-        "0x49": "You don't have permission to send messages in this chat",
-        "0x45": "Server error while sending message",
+      7: {
+        22: "Invalid chat name or chat does not exist",
       },
-      "0x11": {
-        "0x17": "Chat not found",
-        "0x19": "Chat not found",
-        "0x20": "Message not found",
-        "0x21": "Message content cannot be empty",
-        "0x47": "Invalid message type",
-        "0x49": "You don't have permission to edit this message",
-        "0x45": "Server error while getting/editing messages",
+      8: {
+        3: "Username does not exist",
+        11: "User is already blocked",
       },
-      "0x12": {
-        "0x22": "Chat not found",
-        "0x23": "Message not found",
-        "0x49":
-          "You can only delete your own messages or messages in chats you created",
-        "0x45": "Server error while deleting message",
+      9: {
+        3: "Username does not exist",
+        12: "Unable to unblock user",
       },
-      // Role management errors
-      "0x13": {
-        "0x24": "Chat not found",
-        "0x25": "Invalid role name or role already exists",
-        "0x49": "Only the chat creator can create roles",
-        "0x45": "Server error while creating role",
+      10: {
+        22: "Invalid chat name or chat does not exist",
+        41: "Invalid message content",
+        42: "Invalid message type or format",
       },
-      "0x14": {
-        "0x26": "Chat not found",
-        "0x27": "Role not found",
-        "0x28": "User not found or not in this chat",
-        "0x49": "Only the chat creator can assign roles",
-        "0x45": "Server error while assigning role",
+      11: {
+        22: "Invalid chat name or chat does not exist",
+        41: "Invalid message content",
+        42: "Invalid message type or format",
+        43: "Invalid message ID",
       },
-      "0x15": {
-        "0x29": "Chat not found",
-        "0x30": "Role not found or not assigned to this user",
-        "0x31": "User not found, not in this chat, or doesn't have this role",
-        "0x49": "Only the chat creator can remove roles",
-        "0x45": "Server error while removing role",
+      12: {
+        22: "Invalid chat name or chat does not exist",
+        43: "Invalid message ID",
       },
-      "0x16": {
-        "0x32": "Chat not found",
-        "0x49": "You must be a member of the chat to view roles",
-        "0x45": "Server error while retrieving roles",
+      13: {
+        22: "Invalid chat name or chat does not exist",
+        61: "Invalid role name",
       },
-      // Poke feature errors
-      "0x19": {
-        "0x38": "Chat not found",
-        "0x39": "User not found, not in this chat, or has blocked you",
-        "0x49": "You must be a member of the chat to poke users",
-        "0x45": "Server error while poking user",
+      14: {
+        3: "Username does not exist",
+        22: "Invalid chat name or chat does not exist",
+        62: "Role does not exist",
       },
-      // Pin message errors
-      "0x17": {
-        "0x34": "Chat not found",
-        "0x35": "Message not found",
-        "0x49": "You must be a member of the chat to pin messages",
-        "0x45": "Server error while pinning message",
+      15: {
+        3: "Username does not exist",
+        22: "Invalid chat name or chat does not exist",
+        62: "Role does not exist",
       },
-      "0x18": {
-        "0x36": "Chat not found",
-        "0x37": "Message not found",
-        "0x49": "You must be a member of the chat to unpin messages",
-        "0x45": "Server error while unpinning message",
+      16: {
+        22: "Invalid chat name or chat does not exist",
+        62: "Role does not exist",
       },
-      // Invite link errors
-      "0x22": {
-        "0x43": "Chat not found",
-        "0x49": "Only the chat creator can generate invite links",
-        "0x45": "Server error while generating invite link",
+      17: {
+        22: "Invalid chat name or chat does not exist",
+        43: "Invalid message ID",
       },
-      "0x23": {
-        "0x50": "Invalid invite link format",
-        "0x51": "Chat not found. The invite link may be expired.",
-        "0x52": "Invalid invite link",
-        "0x45": "Server error while joining chat",
+      18: {
+        22: "Invalid chat name or chat does not exist",
+        43: "Invalid message ID",
       },
-      // Display name errors
-      "0x06": {
-        "0x12": "Chat not found",
-        "0x13": "Invalid display name or user not found",
-        "0x49": "You must be a member of the chat to change display names",
-        "0x45": "Server error while changing display name",
+      19: {
+        22: "Invalid chat name or chat does not exist",
+        3: "Username does not exist",
       },
-      // Block/unblock user errors
-      "0x08": {
-        "0x15": "User not found",
-        "0x49": "You cannot block yourself",
-        "0x45": "Server error while blocking user",
+      20: {
+        22: "Invalid chat name or chat does not exist",
       },
-      "0x09": {
-        "0x16": "User not found",
-        "0x45": "Server error while unblocking user",
+      21: {
+        22: "Invalid chat name or chat does not exist",
+        44: "Invalid starting message index",
+        45: "Invalid ending message index",
       },
-      // General errors
-      default: {
-        "0x44": "Unknown operation",
-        "0x45": "Server error",
-        "0x48": "Authentication error. Please try logging in again.",
-        "0x49": "Insufficient permissions",
+      22: {
+        22: "Invalid chat name or chat does not exist",
       },
+      // Generic errors
+      100: "Unknown operation",
+      101: "Unknown error",
+      48: "Invalid authentication token",
+      49: "Insufficient permissions",
     };
 
-    // First check for specific error message
-    if (errorMessages[opcode] && errorMessages[opcode][errorOpcode]) {
-      return errorMessages[opcode][errorOpcode];
+    // First convert to hex string without '0x' prefix
+    const opHex = opcode.toString(16);
+    const errHex = errorOpcode.toString(16);
+
+    // Try to get the specific error for this opcode
+    if (errorMessages[opHex] && errorMessages[opHex][errHex]) {
+      return errorMessages[opHex][errHex];
     }
 
-    // Fall back to default error messages
-    if (errorMessages.default[errorOpcode]) {
-      return errorMessages.default[errorOpcode];
+    // If no specific error is found, check generic errors
+    if (errorMessages[errHex]) {
+      return errorMessages[errHex];
     }
 
-    // If we can't find a specific message, return a generic one with the code
-    return `Error occurred (code: ${errorOpcode})`;
+    return "An unknown error occurred";
   },
 };

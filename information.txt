@@ -1,0 +1,329 @@
+TCP connection for everything 
+
+ 
+
+Account Creation  
+
+packet: (int) opcode=01, (String) username, (String) ASCII password hash 
+
+error opcodes: 
+
+01 – Taken/Restricted Username 
+
+02 – Invalid Password Values 
+
+ 
+
+Login  
+
+packet: (String) username, (String) ASCII password hash, 4x (int) randomly generated number 
+
+error opcodes: 
+
+03 – Username does not exist  
+
+04 – Incorrect Password 
+
+05 – Invalid Random Number 
+
+ 
+
+Create Chat  
+
+packet: (int) opcode=02, (String) chat name 
+
+error opcodes: 
+
+21 – Disallowed/Duplicate Chat Name 
+
+ 
+
+Add User to Chat  
+
+packet: (int) opcode=03, (String) chat name, (String) username to add 
+
+error opcodes: 
+
+03 – Username does not exist 
+
+11 – User is blocked 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+ 
+
+Remove User from Chat  
+
+packet: (int) opcode=04, (String) chat name, (String) username to remove 
+
+error opcodes: 
+
+03 – Username does not exist 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+ 
+
+Leave Chat  
+
+packet: (int) opcode=05, (String) chat name 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+ 
+
+Change Display Name in Chat  
+
+packet: (int) opcode=06, (String) chat name, (String) display name 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+06 – Invalid/Restricted Display Name 
+
+ 
+
+Delete Chat  
+
+packet: (int) opcode=07, (String) chat name 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+ 
+
+Block User 
+
+packet: (int) opcode=08, (String) username to block 
+
+error opcodes: 
+
+03 – Username does not exist 
+
+11 – User is blocked (No reason to block a second time) 
+
+ 
+
+Unblock User 
+
+packet: (int) opcode=09, (String) username to unblock 
+
+error opcodes: 
+
+03 – Username does not exist 
+
+12 – Unable to Unblock 
+
+ 
+
+Send Message in Chat 
+
+packet: (int) opcode=10, (String) chat name, (String) message, (int) message type [for future use set to 00 for default] 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+41 – Invalid message content 
+
+42 – invalid message type/format 
+
+ 
+
+Edit Message in Chat 
+
+packet: (int) opcode=11, (String) chat name, (String) message id, (String) updated message, (int) updated message type [for future use set to 00 for default] 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+41 – Invalid message content 
+
+42 – invalid message type/format 
+
+43 – invalid message ID 
+
+ 
+
+Delete Message in Chat  
+
+packet: (int) opcode=12, (String) chat name, (String) message id 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+43 – invalid message id 
+
+ 
+
+Create Role in Chat  
+
+packet: (int) opcode=13, (String) chat name, (String) role name 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+61 – Role name invalid 
+
+ 
+
+Add Role to User in Chat  
+
+packet: (int) opcode=14, (String) chat name, (String) role name, (String) username to add to role 
+
+error opcodes: 
+
+03 – Username does not exist 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+62 – Role (name) does not Exist 
+
+ 
+
+Remove Role from User in Chat 
+
+packet: (int) opcode=15, (String) chat name, (String) role name, (String) username to remove from role 
+
+error opcodes: 
+
+03 – Username does not exist 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+62 – Role (name) does not Exist 
+
+ 
+
+Delete Role from Chat  
+
+packet: (int) opcode=16, (String) chat name, (String) role name 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+62 – Role (name) does not Exist 
+
+ 
+
+Pin Message in Chat 
+
+packet: (int) opcode=17, (String) chat name, (String) message id 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+43 – invalid message id 
+
+ 
+
+Unpin Message in Chat 
+
+packet: (int) opcode=18, (String) chat name, (String) message id 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+43 – invalid message id 
+
+ 
+
+“Poke” User in Chat 
+
+packet: (int) opcode=19, (String) chat name, (String) username to poke 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+03 – Username does not exist 
+
+ 
+
+Request Chat(s)  
+
+packet: (int) opcode=20 response: (String) chat names separated by BEL [07 or \a] 
+
+-error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist (If selecting multiple use a different opcode?) 
+
+ 
+
+Request Messages in Chat 
+
+packet: (int) opcode=21, (String) chat name, (int) starting message index, (int) ending message index [set to -1 for all] 
+
+response: (String) usernames separated by BEL [07 or \a], (String) messages separated by BEL [07 of \a] 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+44 – invalid starting message index 
+
+45 – invalid ending message index 
+
+ 
+
+Create Chat Invite Link 
+
+packet: (int) opcode=22, (String) chat name response: (String) URL invite link [uses chat id + “r=” + 20 random numbers/letters] 
+
+error opcodes: 
+
+22 – Chat Name Invalid/Does Not Exist 
+
+ 
+
+Errors  
+
+response: (int) opcode received when error occurred, (int) error opcode=? [see above] 
+
+ 
+
+General Info  
+
+All successful operations shall send the success opcode: 00  
+
+unknown “opcode” opcode: 100 
+
+unknown error opcode: 101 
+
+ 
+
+Additional: 
+
+Send authentication token as a byte array, not 4 integers 
+
+Add: 
+
+Authentication token at the front of every package 
+
+Error codes for lack of permissions/invalid authentication token 
+
+Change credentials error codes only send client a general "invalid credentials" message rather than a separate one for username and password: error code  
+
+More specifics in role creation permissions 
+
+Delete/edit message permissions 
+
+Server will send its own 256-bit authentication token for verification 
+
+Add Diffie-Helman 
+
+Poke: sends a notification to a specific user.  Like typing "@name" on Discord, but without the added message 
+
+ 
+
+ 

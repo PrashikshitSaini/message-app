@@ -1,80 +1,85 @@
 /**
- * Authentication utility functions for handling tokens securely
+ * Utilities for authentication and security
  */
-
 const AuthUtils = {
   /**
-   * Generates a cryptographically secure random 32-byte nonce
-   * @returns {string} Base64 encoded nonce
+   * Generates a secure random nonce for authentication
+   * @returns {string} Base64 encoded 32-byte nonce
    */
   generateSecureNonce() {
-    // Create a Uint8Array of 32 random bytes using Web Crypto API
-    const randomBytes = new Uint8Array(32);
-    window.crypto.getRandomValues(randomBytes);
-
-    // Convert to a Base64 string for transmission
-    return this._arrayBufferToBase64(randomBytes);
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return this._arrayBufferToBase64(array.buffer);
   },
 
   /**
-   * Validates that a token is in the correct format (Base64-encoded 32-byte value)
-   * @param {string} token The token to validate
-   * @returns {boolean} True if the token is valid
+   * Hash a password using SHA-256
+   * @param {string} password - Plain text password
+   * @returns {Promise<string>} Hex string of hashed password
+   */
+  async hashPassword(password) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  },
+
+  /**
+   * Validates the format of an authentication token
+   * @param {string} token - Base64 encoded token to validate
+   * @returns {boolean} True if token is valid
    */
   validateTokenFormat(token) {
     if (!token) return false;
 
     try {
-      // Try to decode the Base64 string
-      const decoded = atob(token);
-      // Check if it decodes to 32 bytes
-      return decoded.length === 32;
+      const bytes = this._base64ToArrayBuffer(token);
+      return bytes.byteLength === 32;
     } catch (e) {
-      console.error("Invalid token format", e);
+      console.error("Token validation error:", e);
       return false;
     }
   },
 
   /**
-   * Securely stores the authentication token in memory
-   * In a production app, you might consider using more secure storage methods
-   * @param {string} token The authentication token
-   * @returns {string|boolean} The token if valid, false otherwise
+   * Stores and validates the authentication token
+   * @param {string} token - Base64 encoded token to store
+   * @returns {boolean} True if token is valid
    */
   storeToken(token) {
     if (!this.validateTokenFormat(token)) {
-      console.error("Attempted to store invalid token format");
       return false;
     }
 
-    // In this simple implementation, we just return the token
-    // In a real app, you might encrypt it in memory or use more secure storage
-    return token;
+    // In a production app, you might store this in secure storage
+    // For now, just return true if it's valid
+    return true;
   },
 
   /**
-   * Helper method to convert ArrayBuffer to Base64 string
-   * @private
+   * Converts an ArrayBuffer to Base64 string
+   * @param {ArrayBuffer} buffer - Buffer to convert
+   * @returns {string} Base64 encoded string
    */
   _arrayBufferToBase64(buffer) {
-    let binary = "";
     const bytes = new Uint8Array(buffer);
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i++) {
       binary += String.fromCharCode(bytes[i]);
     }
     return btoa(binary);
   },
 
   /**
-   * Helper method to convert Base64 string to ArrayBuffer
-   * @private
+   * Converts a Base64 string to ArrayBuffer
+   * @param {string} base64 - Base64 string to convert
+   * @returns {ArrayBuffer} Decoded array buffer
    */
   _base64ToArrayBuffer(base64) {
     const binaryString = atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
       bytes[i] = binaryString.charCodeAt(i);
     }
     return bytes.buffer;
