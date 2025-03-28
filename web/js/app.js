@@ -330,11 +330,11 @@ async function loadChatMessages(chatName, scrollToBottom = false) {
   try {
     const data = await API.getMessages(authToken, chatName);
     if (data.opcode === 0x00) {
-      // Capture scroll position to maintain it unless we want to scroll to bottom
-      const shouldScrollToBottom =
-        scrollToBottom ||
-        messagesContainer.scrollHeight - messagesContainer.scrollTop ===
-          messagesContainer.clientHeight;
+      // Store current scroll position before modifying content
+      const scrollPos = messagesContainer.scrollTop;
+      const wasAtBottom =
+        messagesContainer.scrollHeight - messagesContainer.scrollTop <=
+        messagesContainer.clientHeight + 10;
 
       // Clear containers
       pinnedMessagesContainer.innerHTML = "";
@@ -360,15 +360,20 @@ async function loadChatMessages(chatName, scrollToBottom = false) {
         pinnedMessagesContainer.classList.add("hidden");
       }
 
-      // Display regular messages
-      data.messages.forEach((msg) => {
+      // Display regular messages in chronological order (oldest first)
+      // Reverse the array since the server sends messages in descending order (newest first)
+      const messagesInOrder = [...data.messages].reverse();
+      messagesInOrder.forEach((msg) => {
         const div = createMessageElement(msg);
         messagesContainer.appendChild(div);
       });
 
-      // Auto-scroll to bottom for new messages if previously at bottom
-      if (shouldScrollToBottom) {
+      // Only scroll to bottom if explicitly requested or if we were already at the bottom
+      if (scrollToBottom || wasAtBottom) {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      } else {
+        // Try to maintain previous scroll position
+        messagesContainer.scrollTop = scrollPos;
       }
     } else {
       const errorCode = data.error_opcode;
@@ -881,7 +886,8 @@ function startMessagePolling(chatName) {
   // Set up new polling interval
   messagePollingInterval = setInterval(() => {
     if (chatName) {
-      loadChatMessages(chatName);
+      // When polling for new messages, don't force scroll to bottom
+      loadChatMessages(chatName, false);
     }
   }, POLLING_INTERVAL);
   console.log(`Started polling for messages in chat: ${chatName}`);
@@ -916,7 +922,7 @@ chatList.addEventListener("click", (e) => {
   pokeBtn.disabled = false;
   currentChat = selectedChat;
 
-  // Load messages and start polling
+  // Load messages and start polling - Always scroll to bottom when selecting a new chat
   loadChatMessages(selectedChat, true); // true means scroll to bottom
   startMessagePolling(selectedChat);
 
