@@ -962,7 +962,7 @@ messageInput.addEventListener("keydown", (e) => {
   }
 });
 
-// Chat Settings: Remove User, Leave Chat, Delete Chat actions using prompt
+// Chat Settings: Remove User, Leave Chat, Delete Chat actions 
 removeUserBtn.addEventListener("click", async () => {
   const chatName = currentChatName.innerText;
   const username = prompt("Enter username to remove:");
@@ -987,7 +987,7 @@ leaveChatBtn.addEventListener("click", async () => {
         currentChatName.innerText = "Select a chat";
         messageInput.disabled = true;
         sendMessageBtn.disabled = true;
-        // Optionally update chat list...
+        
       } else {
         alert("Error leaving chat");
       }
@@ -1209,7 +1209,7 @@ removeRoleForm.addEventListener("submit", async (e) => {
 
 // Open Chat Settings Modal on button click
 chatSettingsBtn.addEventListener("click", async () => {
-  console.log("Chat settings button clicked"); // Add this line for debugging
+  console.log("Chat settings button clicked"); // for debugging
   if (!currentChat) {
     showToast("Please select a chat first", "error");
     return;
@@ -1238,7 +1238,7 @@ document
     const messageDiv = e.target.closest(".message");
     if (!messageDiv) return;
 
-    // Extract message ID (assuming you can store it as a data attribute)
+    // Extract message ID 
     currentMessageId = messageDiv.dataset.messageId;
     if (!currentMessageId) {
       console.warn("Message ID not found");

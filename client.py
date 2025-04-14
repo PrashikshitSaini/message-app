@@ -11,7 +11,7 @@ def create_account():
     print("\n=== Create Account ===")
     username = input("Enter username: ")
     password = getpass.getpass("Enter password: ")
-    confirm_password = getpass.getpass("Confirm password: ")
+    confirm_password = getpass.getpass("Confirm pasword: ")
     
     if password != confirm_password:
         print("Passwords do not match!")

@@ -24,8 +24,8 @@ CORS(app)  # Enable CORS for all domains
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# For demo purposes: store active sessions
-# In production, use a proper session management system
+# For this project we are storing active sessions just like that
+# Use a proper session management system whenever possible
 active_sessions = {}  # Format: {token: {'uid': user_id, 'expires': timestamp}}
 
 # Account Creation Endpoint

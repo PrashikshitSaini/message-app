@@ -52,7 +52,7 @@ const AuthUtils = {
       return false;
     }
 
-    // In a production app, you might store this in secure storage
+    // In a production app, WE might store this in secure storage
     // For now, just return true if it's valid
     return true;
   },
