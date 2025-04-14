@@ -55,9 +55,17 @@ Your `creds.json` file should look something like this:
 
 #### 4. Run the application
 
-```bash
-npm start
-```
+# In the root directory, start the server
+
+python server.py
+
+- Then open the web client
+
+- Option 1: Use a Live Server extension in your code editor
+   Navigate to the /web folder and start Live Server
+
+- Option 2: Open the file directly in a browser
+ Open /web/index.html in your browser
 
 The server should be running at `http://localhost:3000` by default.
 
