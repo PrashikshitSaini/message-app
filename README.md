@@ -1,103 +1,119 @@
-# 💬 Messaging App 
+# Message App
 
-![Status](https://img.shields.io/badge/status-active-blueviolet)  
-![Network Protocols](https://img.shields.io/badge/network_protocols-implemented-success)  
-![Built With](https://img.shields.io/badge/built_with-quality-orange)  
-![Semester](https://img.shields.io/badge/semester-Spring_2025-blue)
+A real-time messaging application with chat functionality, user roles, and message management.
 
-> A project initially designed to explore network protocols, which evolved into a fully functional messaging application.
+## Getting Started
 
-## 🌟 About This Project
-
-This project was started as an effort to deepen understanding of network protocols through practical application. It resulted in the creation of a secure and feature-rich messaging application. The app includes secure authentication, real-time chat functionality, robust error handling, and an intuitive user interface.
-
-The project demonstrates the implementation of a secure binary communication protocol (JSON used for HTTP requests in the demo), with a focus on authentication, chat management, and security best practices.
-
-## 👨‍💻 Tech Stack
-
-- **Frontend**: HTML5, CSS3, JavaScript  
-- **Backend**: Python with Flask  
-- **Database**: Firebase Firestore  
-- **Authentication**: Custom token-based system utilizing SHA-256 password hashing  
-- **API Communication**: Simulated binary protocol with serialization/deserialization  
-
-## ✨ Key Features
-
-- **Secure Authentication**: SHA-256 password hashing for enhanced security  
-- **Real-time Messaging**: Auto-refresh polling for seamless chat experience  
-- **Chat Management**: Create, manage, and moderate chat groups  
-- **Role System**: Assign roles and manage user permissions  
-- **Message Controls**: Edit, delete, and pin messages  
-- **User Blocking**: Block unwanted users  
-- **Invite Links**: Generate and share invite links  
-- **Custom Display Names**: Personalize how users appear in chats  
-
-## 💡 Learning Outcomes
-
-- Binary protocol design and implementation  
-- Network security best practices  
-- Token-based authentication flows  
-- Real-world error handling for production-level applications  
-- Full-stack architecture design  
-- Integration with Firebase for backend systems  
-
-## 🚀 Getting Started
+Follow these instructions to get the application running on your local machine.
 
 ### Prerequisites
 
-- Python 3.8+  
-- Firebase account with Firestore enabled  
-- Node.js (for local development server, if required)  
+- Node.js and npm installed
+- Firebase account (for authentication and database)
 
 ### Installation
 
-1. **Clone the repository**  
-   ```bash
-   git clone https://your-repo-url/messaging-app.git
-   cd messaging-app
-   ```
-   
-2. **Install Python dependencies**  
-   ```bash
-   pip install -r requirements.txt
-   ```
+#### 1. Clone the repository
 
-3. **Set up Firebase credentials**  
-   - Create a `creds.json` file with your Firebase admin SDK credentials  
-   - Place it in the root directory  
+```bash
+git clone https://github.com/yourusername/message-app.git
+cd message-app
+```
 
-4. **Run the server**  
-   ```bash
-   python server.py
-   ```
+#### 2. Install dependencies
 
-5. **Open the web interface**  
-   - Use `web/index.html` in your browser or start a local server:  
-     ```bash
-     python -m http.server 8000 --directory web
-     ```
+```bash
+npm install
+```
 
-### Security Features
+#### 3. Configure Firebase
 
-- Secure password hashing using SHA-256  
-- Client-side nonce generation for request security  
-- Server-side validation for all incoming requests  
-- Token expiration after 24 hours  
-- Protection against common vulnerabilities  
+1. Create a Firebase project at [Firebase Console](https://console.firebase.google.com/)
+2. Generate a service account key:
+   - Go to Project Settings > Service accounts
+   - Click "Generate new private key"
+   - Save the JSON file
+   - Rename it to `creds.json`
+   - Place it in the root folder of this project
 
-## 🌱 Future Improvements
+Your `creds.json` file should look something like this:
 
-- Implement WebSockets for true real-time messaging  
-- Add end-to-end encryption for enhanced privacy  
-- Develop a mobile application  
-- Introduce voice/video calling features  
-- Create custom emojis and reactions  
+```json
+{
+  "type": "service_account",
+  "project_id": "your-project-id",
+  "private_key_id": "your-private-key-id",
+  "private_key": "your-private-key",
+  "client_email": "your-client-email@your-project-id.iam.gserviceaccount.com",
+  "client_id": "your-client-id",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "your-cert-url"
+}
+```
 
----
+#### 4. Run the application
 
-Made with dedication and a deep interest in network protocols.  
-**Star this repository if you find it useful!**
+```bash
+npm start
+```
 
----
+The server should be running at `http://localhost:3000` by default.
 
-Let me know if you'd like any further refinements!
+Open your browser and navigate to `http://localhost:3000` to access the messaging app.
+
+## Features
+
+- Real-time messaging
+- User authentication
+- Chat creation and management
+- Message pinning
+- User roles and permissions
+- Message editing and deletion
+- Custom display names (client-side)
+- User blocking
+
+## Usage
+
+1. Register for an account or login
+2. Create a new chat or join an existing one
+3. Send messages and interact with other users
+
+## Known Issues & Contributions
+
+Since there's just the four of us working on this project, we're keeping track of bugs and enhancements in the Issues tab. If you spot something weird or have a cool idea:
+
+1. Check if someone's already reported it in the Issues tab
+2. If not, create a new issue - be descriptive so we all understand what's happening
+3. Want to fix it? Great! Just let the team know you're working on it
+
+Remember, this is our shared playground - if you're making changes:
+
+- Create your own branch (don't mess with main!)
+- Test your changes before sharing with the team
+- Let everyone know what you fixed and why
+
+### When You Fix Something
+
+Drop a message in the group chat and reference the issue number in your commit (e.g., "Fixed that annoying popup bug, closes #42").
+
+If you need help, just ping one of us.
+
+## Development
+
+⚠️ **IMPORTANT WARNING** ⚠️
+
+Always fork this repository before making any changes. Never commit directly to the main branch of the original repository. This ensures you have your own copy to work with and prevents unintended changes to the main codebase.
+
+```bash
+# Create a fork on GitHub first, then clone your fork
+git clone https://github.com/your-username/message-app.git
+
+# Create a new branch for your changes
+git checkout -b feature/your-new-feature
+```
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
