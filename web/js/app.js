@@ -92,7 +92,7 @@ loginForm.addEventListener("submit", async (e) => {
   try {
     showToast("Logging in...", "info");
     const passwordHash = await sha256(password);
-    const data = await API.login(username, passwordHash);
+    const data = await API.login(username, passwordHash); // Now uses opcode 0x03
 
     // Check if we have a data object with an authentication token
     if (data && data.authentication_token) {
@@ -236,7 +236,7 @@ createChatForm.addEventListener("submit", async (e) => {
 
   try {
     showToast("Creating chat...", "info");
-    const data = await API.createChat(authToken, chatName);
+    const data = await API.createChat(authToken, chatName); // Now uses opcode 0x21
 
     if (handleApiError(data)) {
       showToast("Chat created successfully", "success");
@@ -265,15 +265,15 @@ addUserForm.addEventListener("submit", async (e) => {
   const chatName = currentChatName.innerText; // assuming currentChatName shows the active chat
   const usernameToAdd = document.getElementById("addUsername").value;
   try {
-    const data = await API.addUserToChat(authToken, chatName, usernameToAdd);
-    if (data.opcode === 0x00) {
-      alert(`User ${usernameToAdd} added successfully`);
+    const data = await API.addUserToChat(authToken, chatName, usernameToAdd); // Now uses opcode 0x22
+    if (handleApiError(data)) {
+      showToast(`User ${usernameToAdd} added successfully`, "success");
       closeModal(addUserModal);
-    } else {
-      alert("Error adding user");
+      document.getElementById("addUsername").value = "";
     }
   } catch (error) {
     console.error("Add user error", error);
+    showToast("Network error while adding user", "error");
   }
 });
 
@@ -560,9 +560,9 @@ async function pinMessage(messageId, shouldUnpin = false) {
     // Determine if we need to pin or unpin
     let data;
     if (shouldUnpin) {
-      data = await API.unpinMessage(authToken, currentChat, messageId);
+      data = await API.unpinMessage(authToken, currentChat, messageId); // Now uses opcode 0x45
     } else {
-      data = await API.pinMessage(authToken, currentChat, messageId);
+      data = await API.pinMessage(authToken, currentChat, messageId); // Now uses opcode 0x44
     }
 
     if (handleApiError(data)) {
@@ -589,22 +589,13 @@ async function pinMessage(messageId, shouldUnpin = false) {
 async function deleteMessage(messageId) {
   if (!currentChat) return;
   try {
-    const data = await API.deleteMessage(authToken, currentChat, messageId);
+    const data = await API.deleteMessage(authToken, currentChat, messageId); // Now uses opcode 0x43
     if (data.opcode === 0x00) {
       // Show success toast instead of alert
       showToast("Message deleted successfully", "success");
       loadChatMessages(currentChat); // Reload to refresh the message list
     } else {
-      const errorCode = data.error_opcode;
-      if (errorCode === 0x22) {
-        showToast("Invalid chat name", "error");
-      } else if (errorCode === 0x23) {
-        showToast("Invalid message ID", "error");
-      } else if (errorCode === 0x49) {
-        showToast("You don't have permission to delete this message", "error");
-      } else {
-        showToast(`Error deleting message: code ${errorCode}`, "error");
-      }
+      handleApiError(data, "Error deleting message");
     }
   } catch (error) {
     console.error("Error deleting message", error);
@@ -940,7 +931,7 @@ sendMessageBtn.addEventListener("click", async () => {
   }
 
   try {
-    const data = await API.sendMessage(authToken, chatName, message);
+    const data = await API.sendMessage(authToken, chatName, message); // Now uses opcode 0x41
     if (handleApiError(data)) {
       messageInput.value = "";
       loadChatMessages(chatName, true);
@@ -962,18 +953,19 @@ messageInput.addEventListener("keydown", (e) => {
   }
 });
 
-// Chat Settings: Remove User, Leave Chat, Delete Chat actions 
+// Chat Settings: Remove User, Leave Chat, Delete Chat actions
 removeUserBtn.addEventListener("click", async () => {
   const chatName = currentChatName.innerText;
   const username = prompt("Enter username to remove:");
   if (!username) return;
   try {
-    const data = await API.removeUserFromChat(authToken, chatName, username);
-    alert(
-      data.opcode === 0x00 ? `User ${username} removed` : "Error removing user"
-    );
+    const data = await API.removeUserFromChat(authToken, chatName, username); // Now uses opcode 0x23
+    if (handleApiError(data)) {
+      showToast(`User ${username} removed from chat`, "success");
+    }
   } catch (error) {
     console.error("Remove user error", error);
+    showToast("Network error while removing user", "error");
   }
 });
 
@@ -981,18 +973,22 @@ leaveChatBtn.addEventListener("click", async () => {
   const chatName = currentChatName.innerText;
   if (confirm("Are you sure you want to leave this chat?")) {
     try {
-      const data = await API.leaveChat(authToken, chatName);
-      if (data.opcode === 0x00) {
-        alert("You have left the chat");
+      const data = await API.leaveChat(authToken, chatName); // Now uses opcode 0x32
+      if (handleApiError(data)) {
+        showToast("You have left the chat", "success");
         currentChatName.innerText = "Select a chat";
         messageInput.disabled = true;
         sendMessageBtn.disabled = true;
-        
-      } else {
-        alert("Error leaving chat");
+        pokeBtn.disabled = true;
+        stopMessagePolling();
+        loadChats();
+        messagesContainer.innerHTML =
+          '<div class="empty-state">Select a chat or create a new one to start messaging</div>';
+        closeModal(chatSettingsModal);
       }
     } catch (error) {
       console.error("Leave chat error", error);
+      showToast("Network error while leaving chat", "error");
     }
   }
 });
@@ -1001,18 +997,22 @@ deleteChatBtn.addEventListener("click", async () => {
   const chatName = currentChatName.innerText;
   if (confirm("Delete chat? This cannot be undone.")) {
     try {
-      const data = await API.deleteChat(authToken, chatName);
-      if (data.opcode === 0x00) {
-        alert("Chat deleted and removed from list");
+      const data = await API.deleteChat(authToken, chatName); // Now uses opcode 0x24
+      if (handleApiError(data)) {
+        showToast("Chat deleted successfully", "success");
         currentChatName.innerText = "Select a chat";
-        messagesContainer.innerHTML = `<div class="empty-state">Select a chat or create a new one to start messaging</div>`;
-        stopMessagePolling(); // Stop polling when chat is deleted
-        loadChats(); // Refresh chat list
-      } else {
-        alert("Error deleting chat");
+        messagesContainer.innerHTML =
+          '<div class="empty-state">Select a chat or create a new one to start messaging</div>';
+        messageInput.disabled = true;
+        sendMessageBtn.disabled = true;
+        pokeBtn.disabled = true;
+        stopMessagePolling();
+        loadChats();
+        closeModal(chatSettingsModal);
       }
     } catch (error) {
       console.error("Delete chat error", error);
+      showToast("Network error while deleting chat", "error");
     }
   }
 });
@@ -1238,7 +1238,7 @@ document
     const messageDiv = e.target.closest(".message");
     if (!messageDiv) return;
 
-    // Extract message ID 
+    // Extract message ID
     currentMessageId = messageDiv.dataset.messageId;
     if (!currentMessageId) {
       console.warn("Message ID not found");
@@ -1275,7 +1275,7 @@ editMessageForm.addEventListener("submit", async (e) => {
       currentChat,
       currentMessageId,
       updatedMessage
-    );
+    ); // Now uses opcode 0x42
     if (data.opcode === 0x00) {
       showToast("Message edited successfully", "success");
       closeModal(editMessageModal);
@@ -1420,22 +1420,24 @@ function handleApiError(data, defaultMessage = "An error occurred") {
   }
 
   const errorOpcode = data.error_opcode;
-  const opcode = data.opcode;
+  const opcode = data.opcode; // Opcode of the request
 
   if (errorOpcode) {
     // Get user-friendly error message from API
     const errorMessage = API.getErrorMessage(opcode, errorOpcode);
 
-    // For authentication errors, show in modal
+    // For authentication errors (login opcode 0x03, account creation 0x01)
+    // or general auth token error 0x48
     if (
-      errorOpcode === 0x03 ||
-      errorOpcode === 0x04 ||
-      errorOpcode === 0x48 ||
-      opcode === 0x00 ||
-      opcode === 0x01
+      (opcode === 0x03 &&
+        (errorOpcode === 0x03 ||
+          errorOpcode === 0x04 ||
+          errorOpcode === 0x05)) || // Login errors
+      (opcode === 0x01 && (errorOpcode === 0x01 || errorOpcode === 0x02)) || // Account creation errors
+      errorOpcode === 0x48 // Invalid auth token
     ) {
-      // Special case for invalid credentials
-      if ((errorOpcode === 0x03 || errorOpcode === 0x04) && opcode === 0x00) {
+      // Special case for invalid credentials during login (opcode 0x03, error 0x04)
+      if (opcode === 0x03 && errorOpcode === 0x04) {
         showToast("Invalid username or password", "error");
         // Focus the password field for retry
         document.getElementById("loginPassword").focus();
@@ -1444,11 +1446,11 @@ function handleApiError(data, defaultMessage = "An error occurred") {
         showToast("Your session has expired. Please login again.", "error");
         logoutBtn.click(); // Force logout
       } else {
-        showToast(errorMessage, "error");
+        showToast(errorMessage || defaultMessage, "error");
       }
     } else {
       // For other errors, show toast
-      showToast(errorMessage, "error");
+      showToast(errorMessage || defaultMessage, "error");
     }
     return false;
   }
@@ -1524,7 +1526,7 @@ async function joinChatViaInviteLink(inviteLink) {
 // Function to block a user
 async function blockUser(username) {
   try {
-    const data = await API.blockUser(authToken, username);
+    const data = await API.blockUser(authToken, username); // Now uses opcode 0x11
     if (data.opcode === 0x00) {
       showToast(`User ${username} has been blocked`, "success");
       // Reload messages to apply the block
@@ -1532,14 +1534,8 @@ async function blockUser(username) {
         loadChatMessages(currentChat);
       }
     } else {
-      const errorCode = data.error_opcode;
-      if (errorCode === 0x15) {
-        showToast("User not found", "error");
-      } else if (errorCode === 0x49) {
-        showToast("You cannot block yourself", "error");
-      } else {
-        showToast(`Error blocking user: code ${errorCode}`, "error");
-      }
+      // Use standard error handling
+      handleApiError(data, `Error blocking user ${username}`);
     }
   } catch (error) {
     console.error("Error blocking user", error);
@@ -1550,7 +1546,7 @@ async function blockUser(username) {
 // Add this after the blockUser function
 async function unblockUser(username) {
   try {
-    const data = await API.unblockUser(authToken, username);
+    const data = await API.unblockUser(authToken, username); // Now uses opcode 0x12
     if (data.opcode === 0x00) {
       showToast(`User ${username} has been unblocked`, "success");
       // Reload messages to apply the unblock
@@ -1558,12 +1554,8 @@ async function unblockUser(username) {
         loadChatMessages(currentChat);
       }
     } else {
-      const errorCode = data.error_opcode;
-      if (errorCode === 0x16) {
-        showToast("User not found", "error");
-      } else {
-        showToast(`Error unblocking user: code ${errorCode}`, "error");
-      }
+      // Use standard error handling
+      handleApiError(data, `Error unblocking user ${username}`);
     }
   } catch (error) {
     console.error("Error unblocking user", error);
@@ -1578,7 +1570,7 @@ async function loadBlockedUsers() {
     blockedUsersList.innerHTML =
       '<div class="loading">Loading blocked users...</div>';
 
-    const data = await API.getBlockedUsers(authToken);
+    const data = await API.getBlockedUsers(authToken); // Now uses opcode 0x13
     if (data.opcode === 0x00) {
       blockedUsersList.innerHTML = "";
       if (!data.blocked_users || data.blocked_users.length === 0) {

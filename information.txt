@@ -1,329 +1,483 @@
-TCP connection for everything 
+User Commands
 
- 
 
-Account Creation  
+Login
 
-packet: (int) opcode=01, (String) username, (String) ASCII password hash 
+- packet: (int) opcode=03, (String) UID, (String) ASCII password, (byte array, 256 bit) Session token
 
-error opcodes: 
+- error opcodes:
 
-01 – Taken/Restricted Username 
+• 04 – Invalid Credentials (includes random number incorrect)
 
-02 – Invalid Password Values 
+- UID: User ID, uniquely chosen at account creation, different than display name(s).
 
- 
 
-Login  
+Account Creation
 
-packet: (String) username, (String) ASCII password hash, 4x (int) randomly generated number 
+- packet: (int) opcode=01, (String) username, (String) ASCII password
 
-error opcodes: 
+- error opcodes:
 
-03 – Username does not exist  
+• 01 – Taken/Restricted Username
 
-04 – Incorrect Password 
+• 02 – Invalid Password Values
 
-05 – Invalid Random Number 
+- The username chosen here (if not taken) becomes the User ID (UID) used for most backend operations.
 
- 
+• This is different than display name, which defaults to UID or can be randomly generated at the start
 
-Create Chat  
+• Each team can choose what they want, just keep display name and UID separate
 
-packet: (int) opcode=02, (String) chat name 
 
-error opcodes: 
+“Poke” User in Chat
 
-21 – Disallowed/Duplicate Chat Name 
+- packet: (int) opcode=02, (byte array, 256 bit) Session token, (String) Chat ID, (String) username to poke
 
- 
+- error opcodes:
 
-Add User to Chat  
+• 22 – Chat ID Invalid/Does Not Exist
 
-packet: (int) opcode=03, (String) chat name, (String) username to add 
+• 03 – Username does not exist
 
-error opcodes: 
+- Depending on each team’s UI design, the user may or not be able to poke by UID, display name (both as arguments in in-app scripting like @ in discord), or via UI (such as a generic drop-down for each user).
 
-03 – Username does not exist 
+• Most secure practice is to use UID on backend and disallow UID being shown to user doing the poking.
 
-11 – User is blocked 
 
-22 – Chat Name Invalid/Does Not Exist 
+** This is needed so that clients know what they can and cannot do.
 
- 
+Query a User’s Own Permissions in Chat
 
-Remove User from Chat  
+- packet: (int) opcode=04, (byte array, 256 bit) Session token, (String) Chat ID
 
-packet: (int) opcode=04, (String) chat name, (String) username to remove 
+- Response packet: (int) opcode=00, (byte array, 256 bit) Session token, (int) permissions
 
-error opcodes: 
+- Permissions 0=no permissions, 1=write permissions, 2=query users in chat [Note: if all permissions are granted, 3 would be sent, as the permissions are added.]
 
-03 – Username does not exist 
+- error opcodes:
 
-22 – Chat Name Invalid/Does Not Exist 
+• 22 – Chat ID Invalid/Does Not Exist
 
- 
 
-Leave Chat  
 
-packet: (int) opcode=05, (String) chat name 
+Block User
 
-error opcodes: 
+- packet: (int) opcode=11, (byte array, 256 bit) Session token, (String) username to block
 
-22 – Chat Name Invalid/Does Not Exist 
+- error opcodes:
 
- 
+• 03 – Username does not exist
 
-Change Display Name in Chat  
+• 11 – User is blocked (No reason to block a second time)
 
-packet: (int) opcode=06, (String) chat name, (String) display name 
+- Backend could use UID, but user should be able to block by UID, display name, or a user interface dialog (the last two protect blocked user security by not giving/requiring UID)
 
-error opcodes: 
 
-22 – Chat Name Invalid/Does Not Exist 
+Unblock User
 
-06 – Invalid/Restricted Display Name 
+- packet: (int) opcode=12, (byte array, 256 bit) Session token, (String) username to unblock
 
- 
+- error opcodes:
 
-Delete Chat  
+• 03 – Username does not exist
 
-packet: (int) opcode=07, (String) chat name 
+• 12 – Unable to Unblock
 
-error opcodes: 
+- Backend could use UID, but user should be able to unblock by UID, display name, or a UI dialog (the last two protect blocked user security by not giving/requiring UID)
 
-22 – Chat Name Invalid/Does Not Exist 
 
- 
+List/Query Blocked Users
 
-Block User 
+- packet: (int) opcode=13, (byte array, 256 bit) Session token
 
-packet: (int) opcode=08, (String) username to block 
+- Response packet: (int) opcode=00, (byte array, 256 bit) Session token, (string) blocked UIDs separated by BEL
 
-error opcodes: 
+- error opcodes:
 
-03 – Username does not exist 
+• 13 – Could not retrieve user(s)
 
-11 – User is blocked (No reason to block a second time) 
+• 12 – Unable to Unblock
 
- 
+- This list will show all blocked users
 
-Unblock User 
+• Features such as querying the list for a specific display name/UID may require another packet/different opcode with the name/UID of the user being queried
 
-packet: (int) opcode=09, (String) username to unblock 
+• For security, it may be best to only show display names to users, but teams are free to do as they choose regarding this
 
-error opcodes: 
+- This is an OPTIONAL feature
 
-03 – Username does not exist 
 
-12 – Unable to Unblock 
+** This is needed for security so that owners and some users know who is in their chat.
 
- 
+List/Query Users in Chat
 
-Send Message in Chat 
+- packet: (int) opcode=14, (byte array, 256 bit) Session token, (String) chat ID
 
-packet: (int) opcode=10, (String) chat name, (String) message, (int) message type [for future use set to 00 for default] 
+- Response packet: (int) opcode=00, (byte array, 256 bit) Session token, (string) UIDs separated by BEL
 
-error opcodes: 
+- error opcodes:
 
-22 – Chat Name Invalid/Does Not Exist 
+• 22 – Chat ID Invalid/Does Not Exist
 
-41 – Invalid message content 
+- This list will show all users in a chat
 
-42 – invalid message type/format 
+• Features such as querying the list for a specific display name/UID may require another packet/different opcode with the name/UID of the user being queried
 
- 
+• For security, it may be best to only show display names to users, but teams are free to do as they choose regarding this
 
-Edit Message in Chat 
 
-packet: (int) opcode=11, (String) chat name, (String) message id, (String) updated message, (int) updated message type [for future use set to 00 for default] 
 
-error opcodes: 
+Chat Commands
 
-22 – Chat Name Invalid/Does Not Exist 
 
-41 – Invalid message content 
+Create Chat
 
-42 – invalid message type/format 
+- packet: (int) opcode=21, (byte array, 256 bit) Session token, (String) Chat Name
 
-43 – invalid message ID 
+- response packet: (int) opcode=00, (String) chatId(determined by the server)
 
- 
+- error opcodes:
 
-Delete Message in Chat  
+• 21 – Disallowed/Duplicate Chat ID
 
-packet: (int) opcode=12, (String) chat name, (String) message id 
+- Current specifications label the chat name as its unique ID
 
-error opcodes: 
+• May need to change this to the name plus UID or other info to solve the below issues
 
-22 – Chat Name Invalid/Does Not Exist 
+- Duplicate prevention is complicated and as yet undefined:
 
-43 – invalid message id 
+• Is it no duplicates created by one user (a user could join one chat and create their own chat with the exact same name/ID if this is the case, which may affect server)
 
- 
+• If duplicates of any name/Server ID (SID) are disallowed, names of similar server may allow attack surface analysis (i.e. “the quacks” is disallowed even though “the quicks” and “tha quacks” are available, meaning “the quacks” exists as a chat somewhere). It also limits the number of possible chats the userbase can create.
 
-Create Role in Chat  
 
-packet: (int) opcode=13, (String) chat name, (String) role name 
+Add User to Chat
 
-error opcodes: 
+- packet: (int) opcode=22, (byte array, 256 bit) Session token, (String) Chat ID, (String) username to add
 
-22 – Chat Name Invalid/Does Not Exist 
+- error opcodes:
 
-61 – Role name invalid 
+• 03 – Username does not exist
 
- 
+• 11 – User is blocked
 
-Add Role to User in Chat  
+• 22 – Chat ID Invalid/Does Not Exist
 
-packet: (int) opcode=14, (String) chat name, (String) role name, (String) username to add to role 
+- This invites a specific individual to the chat (different from sending a generic chat invite, see below)
 
-error opcodes: 
+• This is serviced/used by the chat creator/admin/server
 
-03 – Username does not exist 
+• This could be used as a means of access control by withholding any permissions/privileges in the chat unless explicitly approved through this control (for users joining via link).
 
-22 – Chat Name Invalid/Does Not Exist 
+• Sending this to a user who has not attempted to join via link may generate a link?
 
-62 – Role (name) does not Exist 
 
- 
+Remove User from Chat
 
-Remove Role from User in Chat 
+- packet: (int) opcode=23, (byte array, 256 bit) Session token, (String) Chat ID, (String) username to remove
 
-packet: (int) opcode=15, (String) chat name, (String) role name, (String) username to remove from role 
+- error opcodes:
 
-error opcodes: 
+• 03 – Username does not exist
 
-03 – Username does not exist 
+• 22 – Chat ID Invalid/Does Not Exist
 
-22 – Chat Name Invalid/Does Not Exist 
+- This does not prevent removed users from rejoining or reusing generic invite links (i.e. this is not a ban, which may require different functionality)
 
-62 – Role (name) does not Exist 
 
- 
 
-Delete Role from Chat  
 
-packet: (int) opcode=16, (String) chat name, (String) role name 
+Delete Chat
 
-error opcodes: 
+- packet: (int) opcode=24, (byte array, 256 bit) Session token, (String) Chat ID
 
-22 – Chat Name Invalid/Does Not Exist 
+- error opcodes:
 
-62 – Role (name) does not Exist 
+• 22 – Chat ID Invalid/Does Not Exist
 
- 
+- Cannot recover deleted chats
 
-Pin Message in Chat 
+• How/what is deleted on both client/server with this command is not yet defined, and will be up to teams to determine where this packet gets sent and what sends it
 
-packet: (int) opcode=17, (String) chat name, (String) message id 
 
-error opcodes: 
+Leave Chat
 
-22 – Chat Name Invalid/Does Not Exist 
+- packet: (int) opcode=32, (byte array, 256 bit) Session token, (String) Chat ID
 
-43 – invalid message id 
+- error opcodes:
 
- 
+• 22 – Chat ID Invalid/Does Not Exist
 
-Unpin Message in Chat 
 
-packet: (int) opcode=18, (String) chat name, (String) message id 
+Change Chat’s Display Name in Chat
 
-error opcodes: 
+- packet: (int) opcode=33, (byte array, 256 bit) Session token, (String) Chat ID, (String) chat’s display name
 
-22 – Chat Name Invalid/Does Not Exist 
+- error opcodes:
 
-43 – invalid message id 
+• 22 – Chat ID Invalid/Does Not Exist
 
- 
+• 06 – Invalid/Restricted Display Name
 
-“Poke” User in Chat 
 
-packet: (int) opcode=19, (String) chat name, (String) username to poke 
+Message Commands
 
-error opcodes: 
 
-22 – Chat Name Invalid/Does Not Exist 
+Send Message in Chat
 
-03 – Username does not exist 
+- packet: (int) opcode=41, (byte array, 256 bit) Session token, (String) Chat ID, (String) message, (int) message type [for future use set to 00 for default]
 
- 
+- Response: (String) message id
 
-Request Chat(s)  
+- error opcodes:
 
-packet: (int) opcode=20 response: (String) chat names separated by BEL [07 or \a] 
+• 22 – Chat ID Invalid/Does Not Exist
 
--error opcodes: 
+• 41 – Invalid message content
 
-22 – Chat Name Invalid/Does Not Exist (If selecting multiple use a different opcode?) 
+• 42 – invalid message type/format
 
- 
+- After sending, may need to refresh in order to
 
-Request Messages in Chat 
 
-packet: (int) opcode=21, (String) chat name, (int) starting message index, (int) ending message index [set to -1 for all] 
+Edit Message in Chat
 
-response: (String) usernames separated by BEL [07 or \a], (String) messages separated by BEL [07 of \a] 
+- packet: (int) opcode=42, (byte array, 256 bit) Session token, (String) Chat ID, (String) message id, (String) updated message, (int) updated message type [for future use set to 00 for default]
 
-error opcodes: 
+- error opcodes:
 
-22 – Chat Name Invalid/Does Not Exist 
+• 22 – Chat ID Invalid/Does Not Exist
 
-44 – invalid starting message index 
+• 41 – Invalid message content
 
-45 – invalid ending message index 
+• 42 – invalid message type/format
 
- 
+• 43 – invalid message ID
 
-Create Chat Invite Link 
 
-packet: (int) opcode=22, (String) chat name response: (String) URL invite link [uses chat id + “r=” + 20 random numbers/letters] 
+Delete Message in Chat
 
-error opcodes: 
+- packet: (int) opcode=43, (byte array, 256 bit) Session token, (String) Chat ID, (String) message id
 
-22 – Chat Name Invalid/Does Not Exist 
+- error opcodes:
 
- 
+• 22 – Chat ID Invalid/Does Not Exist
 
-Errors  
+• 43 – invalid message id
 
-response: (int) opcode received when error occurred, (int) error opcode=? [see above] 
 
- 
+Pin Message in Chat
 
-General Info  
+- packet: (int) opcode=44, (byte array, 256 bit) Session token, (String) Chat ID, (String) message id
 
-All successful operations shall send the success opcode: 00  
+- error opcodes:
 
-unknown “opcode” opcode: 100 
+• 22 – Chat ID Invalid/Does Not Exist
 
-unknown error opcode: 101 
+• 43 – invalid message id
 
- 
 
-Additional: 
+Unpin Message in Chat
 
-Send authentication token as a byte array, not 4 integers 
+- packet: (int) opcode=45, (byte array, 256 bit) Session token, (String) Chat ID, (String) message id
 
-Add: 
+- error opcodes:
 
-Authentication token at the front of every package 
+• 22 – Chat ID Invalid/Does Not Exist
 
-Error codes for lack of permissions/invalid authentication token 
+• 43 – invalid message id
 
-Change credentials error codes only send client a general "invalid credentials" message rather than a separate one for username and password: error code  
 
-More specifics in role creation permissions 
 
-Delete/edit message permissions 
+Role Commands
 
-Server will send its own 256-bit authentication token for verification 
 
-Add Diffie-Helman 
+Request Chat(s)
 
-Poke: sends a notification to a specific user.  Like typing "@name" on Discord, but without the added message 
+- packet: (int) opcode=26, (byte array, 256 bit) Session token
 
- 
+- response: (String) Chat IDs separated by BEL [07 or \a], (String) Chat names separate by BEL
 
- 
+- For example, response “<Chat ID>BEL<Chat name>BEL<Chat ID>...”
+
+- -error opcodes:
+
+• 22 – Chat ID Invalid/Does Not Exist (If selecting multiple use a different opcode?)
+
+
+Request Messages in Chat
+
+- packet: (int) opcode=46, (byte array, 256 bit) Session token, (String) Chat ID, (int) starting message index [earliest requested message in chat, 0 = first message sent in chat], (int) ending message index [set to -1 for all]
+
+- response: (String) usernames separated by BEL [07 or \a], (String) messages separated by BEL [07 of \a], (String of an int) message type separated by BEL [07 or \a], (String of an int) time given in ms since the epoch in UTC separated by BEL [07 or \a], (String) message IDs separated by BEL [\a]
+
+- error opcodes:
+
+• 22 – Chat ID Invalid/Does Not Exist
+
+• 44 – invalid starting message index
+
+• 45 – invalid ending message index
+
+
+** This is needed so that clients are not overwhelmed by messages when they first log in.
+
+Request Latest Message Index in Chat
+
+- packet: (int) opcode=47, (byte array, 256 bit) Session token, (String) Chat ID
+
+- response: (int) latest message index
+
+- error opcodes:
+
+• 22 – Chat ID Invalid/Does Not Exist
+
+
+** This is needed so that clients can find pinned chats.
+
+Request Pinned Message Index in Chat
+
+- packet: (int) opcode=48, (byte array, 256 bit) Session token, (String) Chat ID
+
+- response: (String as int) message ID of pinned messages separated by BEL
+
+- error opcodes:
+
+• 22 – Chat ID Invalid/Does Not Exist
+
+
+Create Role in Chat
+
+- packet: (int) opcode=61, (byte array, 256 bit) Session token, (String) Chat ID, (String) role name, (int) permissions
+
+- Permissions: 0=none, 1=write, 2=view users (Permissions are added together)
+
+- error opcodes:
+
+• 22 – Chat ID Invalid/Does Not Exist
+
+• 61 – Role name invalid
+
+• 63 – Invalid permissions
+
+
+Add Role to User in Chat
+
+- packet: (int) opcode=62, (byte array, 256 bit) Session token, (String) Chat ID, (String) role name, (String) username to add to role
+
+- error opcodes:
+
+• 03 – Username does not exist
+
+• 22 – Chat ID Invalid/Does Not Exist
+
+• 62 – Role (name) does not Exist
+
+
+Remove Role from User in Chat
+
+- packet: (int) opcode=63, (byte array, 256 bit) Session token, (String) Chat ID, (String) role name, (String) username to remove from role
+
+- error opcodes:
+
+• 03 – Username does not exist
+
+• 22 – Chat ID Invalid/Does Not Exist
+
+• 62 – Role (name) does not Exist
+
+
+Delete Role from Chat
+
+- packet: (int) opcode=64, (byte array, 256 bit) Session token, (String) Chat ID, (String) role name
+
+- error opcodes:
+
+• 22 – Chat ID Invalid/Does Not Exist
+
+• 62 – Role (name) does not Exist
+
+
+** This is needed for owners to know what roles are in their chat.
+
+Query Roles in Chat
+
+- packet: (int) opcode=65, (byte array, 256 bit) Session token, (String) Chat ID
+
+- response: (String) roles separated by BEL [07 or \a], (String as int) permissions separated by BEL
+
+- error opcodes:
+
+• 22 – Chat ID Invalid/Does Not Exist
+
+
+** This is needed so that own
+
+Query Users in Role in Chat
+
+- packet: (int) opcode=66, (byte array, 256 bit) Session token, (String) Chat ID, (String) role name
+
+- response: (String) usernames separated by BEL [07 or \a]
+
+- error opcodes:
+
+• 22 – Chat ID Invalid/Does Not Exist
+
+• 62 – Role (name) does not Exist
+
+
+OTHER:
+
+
+Errors
+
+- response: (int) error opcode=? [see above], (byte array, 256 bit) Session token
+
+
+General Info
+
+- All successful operations shall send the success opcode: 00
+
+- unknown “opcode” opcode: 100
+
+- unknown error opcode: 101
+
+- All packets shall send the token immediately after the opcode unless specifically specified otherwise
+
+
+Additional:
+
+- Send authentication token as a byte array, not 4 integers
+
+- Integers are int64
+
+- Strings are utf8 encoded
+
+- Add:
+
+- Authentication token at the front of every package
+
+- Error codes for lack of permissions/invalid authentication token
+
+- Change credentials error codes only send client a general "invalid credentials" message rather than a separate one for username and password: error code
+
+- More specifics in role creation permissions
+
+- Delete/edit message permissions
+
+- Server will send its own 256-bit authentication token for verification
+
+- Add Diffie-Helman
+
+- Poke: sends a notification to a specific user. Like typing "@name" on Discord, but without the added message
+
+- Store message times in ms, only display to second/minute, compensate for UTC
+
+- Keep chat IDs in separate packets from message IDs/indexes
+
+- For message type format shall be an integer of the form XX. The first digit shall correspond to whether a message is pinned. 0X shall be unpinned and 1X shall be pinned. The second digit shall correspond to whether a message has been edited or deleted or is a poke. X0 shall be normal message. X1 shall be edited message. X2 shall be deleted message (the message should have no contents). X3 shall be a poke message with the contents being the UID of the person poked.
+
+- Add message change type command (pings, pins?)
+
+• Options and type are 2 separate fields in each message
+

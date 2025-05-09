@@ -18,7 +18,8 @@ firebase_admin.initialize_app(cred)
 db = firestore.client()
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all domains
+# Enable CORS for all domains with support for all methods and headers
+CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"], "allow_headers": "*"}})
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +28,16 @@ logger = logging.getLogger(__name__)
 # For this project we are storing active sessions just like that
 # Use a proper session management system whenever possible
 active_sessions = {}  # Format: {token: {'uid': user_id, 'expires': timestamp}}
+
+# Explicitly handle OPTIONS requests for CORS preflight
+@app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
+@app.route('/<path:path>', methods=['OPTIONS'])
+def handle_options(path):
+    response = jsonify({})
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE')
+    return response
 
 # Account Creation Endpoint
 @app.route('/create-account', methods=['POST'])
@@ -90,13 +101,13 @@ def login():
     password_hash = data.get('passwordHash')
     random_numbers = data.get('randomNumbers')
     
-    if opcode != 0x00:
+    if opcode != 0x03:  # Changed from 0x00 to 0x03
         return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode (100)
     
     # Validate random numbers
     if not isinstance(random_numbers, list) or len(random_numbers) != 4:
         logger.warning(f"Invalid random numbers in login request for user {username}")
-        return jsonify({'opcode': 0x00, 'error_opcode': 0x05})  # Invalid random number
+        return jsonify({'opcode': 0x03, 'error_opcode': 0x05})  # Invalid random number
     
     try:
         email = f"{username}@example.com"
@@ -106,7 +117,7 @@ def login():
             user = auth.get_user_by_email(email)
         except auth.UserNotFoundError:
             logger.warning(f"Login attempt for non-existent user: {username}")
-            return jsonify({'opcode': 0x00, 'error_opcode': 0x03})  # Username does not exist
+            return jsonify({'opcode': 0x03, 'error_opcode': 0x03})  # Username does not exist
             
         # Verify the password
         # Since Firebase doesn't allow direct server-side password verification,
@@ -116,7 +127,7 @@ def login():
         user_doc = db.collection('users').document(user.uid).get()
         if not user_doc.exists:
             logger.warning(f"User {username} exists in Auth but not in Firestore")
-            return jsonify({'opcode': 0x00, 'error_opcode': 0x03})  # Username does not exist
+            return jsonify({'opcode': 0x03, 'error_opcode': 0x03})  # Username does not exist
             
         user_data = user_doc.to_dict()
         stored_password_hash = user_data.get('password_hash')
@@ -124,32 +135,28 @@ def login():
         # If we don't have a stored hash or the provided hash doesn't match
         if not stored_password_hash or stored_password_hash != password_hash:
             logger.warning(f"Invalid password for user {username}")
-            return jsonify({'opcode': 0x00, 'error_opcode': 0x04})  # Incorrect password
+            return jsonify({'opcode': 0x03, 'error_opcode': 0x04})  # Invalid credentials
         
         # Generate a secure 32-byte token
         token_bytes = secrets.token_bytes(32)
-        # Convert to Base64 string for storage and transmission
         session_token = base64.b64encode(token_bytes).decode('utf-8')
         
-        # Use random numbers for additional security
         random_numbers_hash = hashlib.sha256(str(random_numbers).encode()).hexdigest()
         
-        # Token valid for 24 hours
         expiry = time.time() + (24 * 60 * 60)
         
-        # Store the session
         active_sessions[session_token] = {
             'uid': user.uid,
             'username': username,
             'expires': expiry,
-            'random_numbers_hash': random_numbers_hash  # Store the hash of random numbers
+            'random_numbers_hash': random_numbers_hash
         }
         
         logger.info(f"User {username} logged in successfully, secure token created")
         return jsonify({'opcode': 0x00, 'authentication_token': session_token})
     except Exception as e:
         logger.error(f"Error during login: {str(e)}")
-        return jsonify({'opcode': 0x00, 'error_opcode': 0x65})  # Unknown error (101)
+        return jsonify({'opcode': 0x03, 'error_opcode': 0x65})  # Unknown error (101)
 
 # Helper function to verify tokens with improved security
 def verify_token(token):
@@ -158,9 +165,7 @@ def verify_token(token):
         
     session = active_sessions[token]
     
-    # Check if token has expired
     if session['expires'] < time.time():
-        # Clean up expired token
         del active_sessions[token]
         return None
         
@@ -174,28 +179,29 @@ def create_chat():
     opcode = data.get('opcode')
     chat_name = data.get('chat_name')
     
-    if opcode != 0x02:
+    if opcode != 0x21:  # Changed from 0x02 to 0x21
         return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
     
-    # Verify the token
     session = verify_token(auth_token)
     if not session:
-        return jsonify({'opcode': 0x02, 'error_opcode': 0x48})  # Invalid token
+        return jsonify({'opcode': 0x21, 'error_opcode': 0x48})  # Invalid token
     
     uid = session['uid']
     
     try:
-        # Validate chat name
         if not chat_name or len(chat_name) < 3 or len(chat_name) > 32:
-            return jsonify({'opcode': 0x02, 'error_opcode': 0x21})  # Invalid chat name
+            return jsonify({'opcode': 0x21, 'error_opcode': 0x21})  # Invalid chat name
         
-        # Check if user has permissions to create chats
+        # Check if chat with this name already exists
+        existing_chat = find_chat_by_name(chat_name)
+        if existing_chat:
+            return jsonify({'opcode': 0x21, 'error_opcode': 0x21})  # Disallowed/Duplicate Chat ID
+        
         user_doc = db.collection('users').document(uid).get()
         if not user_doc.exists:
             logger.warning(f"User {uid} not found in database")
-            return jsonify({'opcode': 0x02, 'error_opcode': 0x49})  # Insufficient permissions
+            return jsonify({'opcode': 0x21, 'error_opcode': 0x49})  # Insufficient permissions
         
-        # Create the chat in database
         chat_ref = db.collection('chats').document()
         chat_ref.set({
             'name': chat_name,
@@ -205,11 +211,11 @@ def create_chat():
         })
         
         logger.info(f"User {uid} created chat '{chat_name}' with ID {chat_ref.id}")
-        return jsonify({'opcode': 0x00})  # Success
+        return jsonify({'opcode': 0x00, 'chat_id': chat_name})  # Return chat_id as specified
         
     except Exception as e:
         logger.error(f"Error creating chat: {str(e)}")
-        return jsonify({'opcode': 0x02, 'error_opcode': 0x65})  # Unknown error
+        return jsonify({'opcode': 0x21, 'error_opcode': 0x65})  # Unknown error
 
 # Add User to Chat Endpoint
 @app.route('/add-user-to-chat', methods=['POST'])
@@ -220,51 +226,360 @@ def add_user_to_chat():
     chat_name = data.get('chat_name')
     username_to_add = data.get('username_to_add')
     
-    if opcode != 0x03:
+    if opcode != 0x22:  # Changed from different code to 0x22
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    # ...existing code...
+
+# Remove User from Chat Endpoint
+@app.route('/remove-user-from-chat', methods=['POST'])
+def remove_user_from_chat():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+    username_to_remove = data.get('username_to_remove')
+    
+    if opcode != 0x23:  # Changed from different code to 0x23
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    # ...existing code...
+
+# Delete Chat Endpoint
+@app.route('/delete-chat', methods=['POST'])
+def delete_chat():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+    
+    if opcode != 0x24:  # Changed from 0x07 to 0x24
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    # ...existing code...
+
+# Leave Chat Endpoint
+@app.route('/leave-chat', methods=['POST'])
+def leave_chat():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+    
+    if opcode != 0x32:  # Changed from 0x05 to 0x32
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    # ...existing code...
+
+# Change Display Name Endpoint
+@app.route('/change-display-name', methods=['POST'])
+def change_display_name():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+    display_name = data.get('display_name')
+    
+    if opcode != 0x33:  # Changed from 0x06 to 0x33
         return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
     
     # Verify the token
     session = verify_token(auth_token)
     if not session:
-        return jsonify({'opcode': 0x03, 'error_opcode': 0x48})  # Invalid token
+        return jsonify({'opcode': 0x33, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
     
     try:
-        # Find the chat by name
+        # Find the chat
         chat_ref = find_chat_by_name(chat_name)
         if not chat_ref:
-            return jsonify({'opcode': 0x03, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            return jsonify({'opcode': 0x33, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            
+        # Validate display name
+        if not display_name or len(display_name) < 1 or len(display_name) > 32:
+            return jsonify({'opcode': 0x33, 'error_opcode': 0x06})  # Invalid/Restricted Display Name
         
-        # Find user by username
-        user_to_add = find_user_by_username(username_to_add)
-        if not user_to_add:
-            return jsonify({'opcode': 0x03, 'error_opcode': 0x03})  # Username does not exist
-        
-        # Check if requesting user is a member of the chat
+        # Check if user is a member of the chat
         chat_data = chat_ref.get().to_dict()
-        if session['uid'] not in chat_data.get('members', []):
-            return jsonify({'opcode': 0x03, 'error_opcode': 0x49})  # Insufficient permissions
+        if uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x33, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        # If we're using client-side display names, just return success
+        # For server-side display names, we'd update the database here
         
-        # Check if the user is already a member
-        if user_to_add.uid in chat_data.get('members', []):
-            # Not technically an error, but we'll inform the client
-            return jsonify({'opcode': 0x00, 'message': 'User is already a member of this chat'})
-        
-        # Check if the user is blocked
-        requesting_user_doc = db.collection('users').document(session['uid']).get().to_dict()
-        if user_to_add.uid in requesting_user_doc.get('blocked_users', []):
-            return jsonify({'opcode': 0x03, 'error_opcode': 0x11})  # User is blocked
-        
-        # Add the user to the chat
-        chat_ref.update({
-            'members': firestore.ArrayUnion([user_to_add.uid])
-        })
-        
-        logger.info(f"User {username_to_add} added to chat {chat_name}")
-        return jsonify({'opcode': 0x00})  # Success
+        logger.info(f"User {session['username']} changed display name to {display_name} in chat {chat_name}")
+        return jsonify({'opcode': 0x00})
         
     except Exception as e:
-        logger.error(f"Error adding user to chat: {str(e)}")
-        return jsonify({'opcode': 0x03, 'error_opcode': 0x65})  # Unknown error
+        logger.error(f"Error changing display name: {str(e)}")
+        return jsonify({'opcode': 0x33, 'error_opcode': 0x65})  # Unknown error
+
+# Add poke-user endpoint
+@app.route('/poke-user', methods=['POST'])
+def poke_user():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+    username = data.get('username')  # The username to poke
+    
+    if opcode != 0x02:  # Changed from 0x19 to 0x02
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x02, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x02, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            
+        user_to_poke = find_user_by_username(username)
+        if not user_to_poke:
+            return jsonify({'opcode': 0x02, 'error_opcode': 0x03})  # Username does not exist
+            
+        chat_data = chat_ref.get().to_dict()
+        if uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x02, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        if user_to_poke.uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x02, 'error_opcode': 0x03})  # User to poke is not in the chat
+            
+        if uid == user_to_poke.uid:
+            return jsonify({'opcode': 0x02, 'error_opcode': 0x49})  # Can't poke yourself
+            
+        message_ref = chat_ref.collection('messages').document()
+        message_ref.set({
+            'content': f"{session['username']} poked {username}",
+            'sender_uid': uid,
+            'timestamp': firestore.SERVER_TIMESTAMP,
+            'type': 0x01,
+            'edited': False
+        })
+        
+        logger.info(f"User {session['username']} poked {username} in chat {chat_name}")
+        return jsonify({'opcode': 0x00})
+        
+    except Exception as e:
+        logger.error(f"Error poking user: {str(e)}")
+        return jsonify({'opcode': 0x02, 'error_opcode': 0x65})  # Unknown error
+
+# Add block-user endpoint
+@app.route('/block-user', methods=['POST'])
+def block_user():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    username_to_block = data.get('username_to_block')
+    
+    if opcode != 0x11:  # Changed from 0x08 to 0x11
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x11, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        user_to_block = find_user_by_username(username_to_block)
+        if not user_to_block:
+            return jsonify({'opcode': 0x11, 'error_opcode': 0x03})  # Username does not exist
+            
+        if user_to_block.uid == uid:
+            return jsonify({'opcode': 0x11, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        user_ref = db.collection('users').document(uid)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            logger.error(f"User document {uid} not found")
+            return jsonify({'opcode': 0x11, 'error_opcode': 0x65})  # Unknown error
+            
+        user_data = user_doc.to_dict()
+        blocked_users = user_data.get('blocked_users', [])
+        
+        if user_to_block.uid in blocked_users:
+            return jsonify({'opcode': 0x11, 'error_opcode': 0x11})  # User is already blocked
+            
+        blocked_users.append(user_to_block.uid)
+        user_ref.update({'blocked_users': blocked_users})
+        
+        logger.info(f"User {username_to_block} blocked by {session['username']}")
+        return jsonify({'opcode': 0x00})
+        
+    except Exception as e:
+        logger.error(f"Error blocking user: {str(e)}")
+        return jsonify({'opcode': 0x11, 'error_opcode': 0x65})  # Unknown error
+
+# Add unblock-user endpoint
+@app.route('/unblock-user', methods=['POST'])
+def unblock_user():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    username_to_unblock = data.get('username_to_unblock')
+    
+    if opcode != 0x12:  # Changed from 0x09 to 0x12
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x12, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        user_to_unblock = find_user_by_username(username_to_unblock)
+        if not user_to_unblock:
+            return jsonify({'opcode': 0x12, 'error_opcode': 0x03})  # Username does not exist
+            
+        user_ref = db.collection('users').document(uid)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            logger.error(f"User document {uid} not found")
+            return jsonify({'opcode': 0x12, 'error_opcode': 0x65})  # Unknown error
+            
+        user_data = user_doc.to_dict()
+        blocked_users = user_data.get('blocked_users', [])
+        
+        if user_to_unblock.uid not in blocked_users:
+            return jsonify({'opcode': 0x12, 'error_opcode': 0x12})  # Unable to unblock
+            
+        blocked_users.remove(user_to_unblock.uid)
+        user_ref.update({'blocked_users': blocked_users})
+        
+        logger.info(f"User {username_to_unblock} unblocked by {session['username']}")
+        return jsonify({'opcode': 0x00})
+        
+    except Exception as e:
+        logger.error(f"Error unblocking user: {str(e)}")
+        return jsonify({'opcode': 0x12, 'error_opcode': 0x65})  # Unknown error
+
+# Get Blocked Users Endpoint
+@app.route('/get-blocked-users', methods=['POST'])
+def get_blocked_users():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    
+    if opcode != 0x13:  # Changed from not checking to 0x13
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x13, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        user_doc = db.collection('users').document(uid).get()
+        if not user_doc.exists:
+            return jsonify({'opcode': 0x13, 'error_opcode': 0x13})  # Could not retrieve user(s)
+        
+        user_data = user_doc.to_dict()
+        blocked_uids = user_data.get('blocked_users', [])
+        
+        blocked_usernames = []
+        for blocked_uid in blocked_uids:
+            try:
+                blocked_user = auth.get_user(blocked_uid)
+                blocked_username = blocked_user.display_name or blocked_user.email.split('@')[0]
+                blocked_usernames.append(blocked_username)
+            except:
+                pass
+        
+        return jsonify({'opcode': 0x00, 'blocked_users': blocked_usernames})
+        
+    except Exception as e:
+        logger.error(f"Error retrieving blocked users: {str(e)}")
+        return jsonify({'opcode': 0x13, 'error_opcode': 0x65})  # Unknown error
+
+# Query User's Own Permissions Endpoint
+@app.route('/get-user-permissions', methods=['POST'])
+def get_user_permissions():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+
+    if opcode != 0x04:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x04, 'error_opcode': 0x48})  # Invalid token
+
+    uid = session['uid']
+
+    try:
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x04, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+
+        chat_data = chat_ref.get().to_dict()
+        if uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x04, 'error_opcode': 0x49})  # Insufficient permissions (not a member)
+
+        permissions = 0 # Default: no permissions
+        if uid == chat_data.get('created_by'):
+            permissions = 3 # Creator has all permissions (write + query users)
+        elif uid in chat_data.get('members', []):
+            permissions = 1 # Regular member has write permissions
+
+        logger.info(f"User {session['username']} queried permissions for chat {chat_name}. Permissions: {permissions}")
+        return jsonify({'opcode': 0x00, 'permissions': permissions})
+
+    except Exception as e:
+        logger.error(f"Error querying user permissions: {str(e)}")
+        return jsonify({'opcode': 0x04, 'error_opcode': 0x65})  # Unknown error
+
+# List/Query Users in Chat Endpoint
+@app.route('/get-chat-users', methods=['POST'])
+def get_chat_users():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_name')
+
+    if opcode != 0x14:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x14, 'error_opcode': 0x48})  # Invalid token
+
+    uid = session['uid']
+
+    try:
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x14, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+
+        chat_data = chat_ref.get().to_dict()
+        if uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x14, 'error_opcode': 0x49})  # Insufficient permissions
+
+        member_uids = chat_data.get('members', [])
+        member_usernames = []
+        for member_uid in member_uids:
+            try:
+                user_record = auth.get_user(member_uid)
+                member_usernames.append(user_record.display_name or user_record.email.split('@')[0])
+            except Exception:
+                member_usernames.append(f"UnknownUser ({member_uid[:6]}...)")  # Fallback
+
+        logger.info(f"User {session['username']} listed users for chat {chat_name}")
+        return jsonify({'opcode': 0x00, 'users': member_usernames})
+
+    except Exception as e:
+        logger.error(f"Error listing chat users: {str(e)}")
+        return jsonify({'opcode': 0x14, 'error_opcode': 0x65})  # Unknown error
 
 # Get Chats Endpoint
 @app.route('/get-chats', methods=['POST'])
@@ -276,7 +591,6 @@ def get_chats():
     if opcode != 0x20:
         return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
     
-    # Verify the token
     session = verify_token(auth_token)
     if not session:
         return jsonify({'opcode': 0x20, 'error_opcode': 0x48})  # Invalid token
@@ -284,63 +598,29 @@ def get_chats():
     uid = session['uid']
     
     try:
-        # Query for chats where the user is a member
-        chat_query = db.collection('chats').where('members', 'array_contains', uid).get()
+        # Get all chats where the user is a member
+        chats_ref = db.collection('chats')
+        query = chats_ref.where('members', 'array_contains', uid).get()
         
-        chats_list = []
-        for chat_doc in chat_query:
+        chats = []
+        for chat_doc in query:
             chat_data = chat_doc.to_dict()
-            chats_list.append({
+            is_owner = chat_data.get('created_by') == uid
+            
+            chats.append({
                 'name': chat_data.get('name', 'Unnamed Chat'),
-                'is_owner': chat_data.get('created_by') == uid
+                'id': chat_doc.id,
+                'is_owner': is_owner,
+                'member_count': len(chat_data.get('members', [])),
+                'created_at': chat_data.get('createdAt', None)
             })
         
-        logger.info(f"Retrieved {len(chats_list)} chats for user {session['username']}")
-        return jsonify({'opcode': 0x00, 'chats': chats_list})
+        logger.info(f"User {session['username']} retrieved {len(chats)} chats")
+        return jsonify({'opcode': 0x00, 'chats': chats})
         
     except Exception as e:
         logger.error(f"Error retrieving chats: {str(e)}")
         return jsonify({'opcode': 0x20, 'error_opcode': 0x65})  # Unknown error
-
-# Get Blocked Users Endpoint
-@app.route('/get-blocked-users', methods=['POST'])
-def get_blocked_users():
-    data = request.json
-    auth_token = data.get('authentication_token')
-    opcode = data.get('opcode')
-    
-    # Verify the token
-    session = verify_token(auth_token)
-    if not session:
-        return jsonify({'opcode': opcode, 'error_opcode': 0x48})  # Invalid token
-    
-    uid = session['uid']
-    
-    try:
-        # Get user document
-        user_doc = db.collection('users').document(uid).get()
-        if not user_doc.exists:
-            return jsonify({'opcode': opcode, 'error_opcode': 0x03})  # User does not exist
-        
-        user_data = user_doc.to_dict()
-        blocked_uids = user_data.get('blocked_users', [])
-        
-        # Convert UIDs to usernames
-        blocked_usernames = []
-        for blocked_uid in blocked_uids:
-            try:
-                blocked_user = auth.get_user(blocked_uid)
-                blocked_username = blocked_user.display_name or blocked_user.email.split('@')[0]
-                blocked_usernames.append(blocked_username)
-            except:
-                # Skip users that can't be found
-                pass
-        
-        return jsonify({'opcode': 0x00, 'blocked_users': blocked_usernames})
-        
-    except Exception as e:
-        logger.error(f"Error retrieving blocked users: {str(e)}")
-        return jsonify({'opcode': opcode, 'error_opcode': 0x65})  # Unknown error
 
 # Get Messages Endpoint
 @app.route('/get-messages', methods=['POST'])
@@ -355,7 +635,6 @@ def get_messages():
     if opcode != 0x21:
         return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
     
-    # Verify the token
     session = verify_token(auth_token)
     if not session:
         return jsonify({'opcode': 0x21, 'error_opcode': 0x48})  # Invalid token
@@ -363,147 +642,98 @@ def get_messages():
     uid = session['uid']
     
     try:
-        # Validate indices
-        if not isinstance(start_index, int) or start_index < 0:
-            return jsonify({'opcode': 0x21, 'error_opcode': 0x44})  # Invalid starting index
-            
-        if not isinstance(end_index, int) or (end_index != -1 and end_index < start_index):
-            return jsonify({'opcode': 0x21, 'error_opcode': 0x45})  # Invalid ending index
-        
-        # Find the chat
         chat_ref = find_chat_by_name(chat_name)
         if not chat_ref:
             return jsonify({'opcode': 0x21, 'error_opcode': 0x22})  # Chat name invalid/does not exist
-        
-        # Check if user is a member of the chat
+            
         chat_data = chat_ref.get().to_dict()
         if uid not in chat_data.get('members', []):
             return jsonify({'opcode': 0x21, 'error_opcode': 0x49})  # Insufficient permissions
-        
-        # Get messages for the chat - Fixed direction parameter
-        messages_query = chat_ref.collection('messages').order_by('timestamp', direction=firestore.Query.DESCENDING).limit(50).get()
-        
-        messages_list = []
+            
+        # Get pinned message if any
         pinned_message = None
-        
-        for msg_doc in messages_query:
-            msg_data = msg_doc.to_dict()
+        pinned_query = chat_ref.collection('messages').where('pinned', '==', True).limit(1).get()
+        if pinned_query and len(pinned_query) > 0:
+            pinned_doc = pinned_query[0]
+            pinned_data = pinned_doc.to_dict()
             
-            # Get sender information
-            sender_uid = msg_data.get('sender_uid')
-            sender_username = "Unknown"
-            sender_roles = []
-            display_name = None
+            sender_uid = pinned_data.get('sender_uid')
+            sender_username = 'Unknown User'
             
-            if sender_uid:
-                try:
-                    sender_user = auth.get_user(sender_uid)
-                    sender_username = sender_user.display_name or sender_user.email.split('@')[0]
-                    
-                    # Get user roles for this chat
-                    roles_ref = chat_ref.collection('roles').get()
-                    for role in roles_ref:
-                        role_data = role.to_dict()
-                        if sender_uid in role_data.get('members', []):
-                            sender_roles.append(role.id)
-                    
-                    # Get custom display name if exists
-                    user_prefs_ref = chat_ref.collection('user_preferences').document(sender_uid).get()
-                    if user_prefs_ref.exists:
-                        user_prefs = user_prefs_ref.to_dict()
-                        display_name = user_prefs.get('display_name')
-                except:
-                    pass
+            try:
+                sender = auth.get_user(sender_uid)
+                sender_username = sender.display_name or sender.email.split('@')[0]
+            except:
+                pass
+                
+            pinned_message = {
+                'id': pinned_doc.id,
+                'content': pinned_data.get('content'),
+                'sender': sender_username,
+                'sender_uid': sender_uid,
+                'timestamp': pinned_data.get('timestamp'),
+                'type': pinned_data.get('type', 0),
+                'edited': pinned_data.get('edited', False),
+                'pinned': True
+            }
             
-            # Check if message is from a blocked user
-            user_doc = db.collection('users').document(uid).get()
+        # Get blocked users for filtering messages
+        user_doc = db.collection('users').document(uid).get()
+        blocked_users = []
+        if user_doc.exists:
             user_data = user_doc.to_dict()
             blocked_users = user_data.get('blocked_users', [])
             
+        # Get messages - fix direction parameter to DESCENDING
+        messages_query = chat_ref.collection('messages').order_by('timestamp', direction=firestore.Query.DESCENDING).get()
+        
+        messages = []
+        for msg_doc in messages_query:
+            msg_data = msg_doc.to_dict()
+            
+            sender_uid = msg_data.get('sender_uid')
+            sender_username = 'Unknown User'
+            
+            # Check if sender is blocked
             is_blocked = sender_uid in blocked_users
             
-            if not is_blocked:
-                message_obj = {
-                    'id': msg_doc.id,
-                    'content': msg_data.get('content', ''),
-                    'sender': sender_username,
-                    'sender_uid': sender_uid,
-                    'timestamp': msg_data.get('timestamp'),
-                    'edited': msg_data.get('edited', False),
-                    'type': msg_data.get('type', 0),
-                    'pinned': msg_data.get('pinned', False),
-                    'sender_roles': sender_roles,
-                    'display_name': display_name
-                }
+            try:
+                sender = auth.get_user(sender_uid)
+                sender_username = sender.display_name or sender.email.split('@')[0]
+            except:
+                pass
                 
-                # If this is a pinned message, store it separately
-                if message_obj['pinned'] and not pinned_message:
-                    pinned_message = message_obj
-                    
-                messages_list.append(message_obj)
-            else:
-                # For blocked users, just show a placeholder
-                messages_list.append({
-                    'id': msg_doc.id,
-                    'is_blocked': True,
-                    'timestamp': msg_data.get('timestamp')
-                })
-        
-        # Slice the array if necessary
-        if end_index != -1:
-            messages_list = messages_list[start_index:end_index+1]
-        elif start_index > 0:
-            messages_list = messages_list[start_index:]
-        
-        response = {
-            'opcode': 0x00,
-            'messages': messages_list
-        }
-        
-        if pinned_message:
-            response['pinned_message'] = pinned_message
+            # Format the message
+            message = {
+                'id': msg_doc.id,
+                'content': '**********' if is_blocked else msg_data.get('content'),
+                'sender': sender_username,
+                'sender_uid': sender_uid,
+                'timestamp': msg_data.get('timestamp'),
+                'type': msg_data.get('type', 0),
+                'edited': msg_data.get('edited', False),
+                'pinned': msg_data.get('pinned', False),
+                'is_blocked': is_blocked
+            }
             
-        return jsonify(response)
+            messages.append(message)
+            
+        # Apply pagination if needed
+        if end_index >= 0:
+            messages = messages[start_index:end_index]
+        elif start_index > 0:
+            messages = messages[start_index:]
+            
+        logger.info(f"User {session['username']} retrieved messages from chat {chat_name}")
+        return jsonify({
+            'opcode': 0x00, 
+            'messages': messages,
+            'pinned_message': pinned_message
+        })
         
     except Exception as e:
         logger.error(f"Error retrieving messages: {str(e)}")
         return jsonify({'opcode': 0x21, 'error_opcode': 0x65})  # Unknown error
-
-# Get Roles Endpoint
-@app.route('/get-roles', methods=['POST'])
-def get_roles():
-    data = request.json
-    auth_token = data.get('authentication_token')
-    opcode = data.get('opcode')
-    chat_name = data.get('chat_name')
-    
-    # Verify the token
-    session = verify_token(auth_token)
-    if not session:
-        return jsonify({'opcode': opcode, 'error_opcode': 0x48})  # Invalid token
-    
-    uid = session['uid']
-    
-    try:
-        # Find the chat
-        chat_ref = find_chat_by_name(chat_name)
-        if not chat_ref:
-            return jsonify({'opcode': opcode, 'error_opcode': 0x22})  # Chat name invalid/does not exist
-        
-        # Check if user is a member of the chat
-        chat_data = chat_ref.get().to_dict()
-        if uid not in chat_data.get('members', []):
-            return jsonify({'opcode': opcode, 'error_opcode': 0x49})  # Insufficient permissions
-        
-        # Get roles for the chat
-        roles_ref = chat_ref.collection('roles').get()
-        roles_list = [role.id for role in roles_ref]
-        
-        return jsonify({'opcode': 0x00, 'roles': roles_list})
-        
-    except Exception as e:
-        logger.error(f"Error retrieving roles: {str(e)}")
-        return jsonify({'opcode': opcode, 'error_opcode': 0x65})  # Unknown error
 
 # Send Message Endpoint
 @app.route('/send-message', methods=['POST'])
@@ -513,617 +743,55 @@ def send_message():
     opcode = data.get('opcode')
     chat_name = data.get('chat_name')
     message_content = data.get('message')
-    message_type = data.get('message_type', 0)
+    message_type = data.get('message_type', 0x00)
     
-    if opcode != 0x10:
+    if opcode != 0x41:  # Changed from 0x10 to 0x41
         return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
     
-    # Verify the token
     session = verify_token(auth_token)
     if not session:
-        return jsonify({'opcode': 0x10, 'error_opcode': 0x48})  # Invalid token
+        return jsonify({'opcode': 0x41, 'error_opcode': 0x48})  # Invalid token
     
     uid = session['uid']
     
     try:
-        # Validate message content
-        if not message_content or not isinstance(message_content, str):
-            return jsonify({'opcode': 0x10, 'error_opcode': 0x41})  # Invalid message content
-            
-        # Validate message type
-        if not isinstance(message_type, int):
-            return jsonify({'opcode': 0x10, 'error_opcode': 0x42})  # Invalid message type
-        
         # Find the chat
         chat_ref = find_chat_by_name(chat_name)
         if not chat_ref:
-            return jsonify({'opcode': 0x10, 'error_opcode': 0x22})  # Chat name invalid/does not exist
-        
+            return jsonify({'opcode': 0x41, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            
+        # Validate message content
+        if not message_content or len(message_content) > 2000:
+            return jsonify({'opcode': 0x41, 'error_opcode': 0x41})  # Invalid message content
+            
+        # Validate message type
+        if message_type not in [0x00, 0x01, 0x02]:  # Normal, Poke, System
+            return jsonify({'opcode': 0x41, 'error_opcode': 0x42})  # Invalid message type
+            
         # Check if user is a member of the chat
         chat_data = chat_ref.get().to_dict()
         if uid not in chat_data.get('members', []):
-            return jsonify({'opcode': 0x10, 'error_opcode': 0x49})  # Insufficient permissions
-        
-        # Create the message
+            return jsonify({'opcode': 0x41, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        # Create and store the message
         message_ref = chat_ref.collection('messages').document()
         message_ref.set({
             'content': message_content,
             'sender_uid': uid,
             'timestamp': firestore.SERVER_TIMESTAMP,
             'type': message_type,
-            'edited': False
+            'edited': False,
+            'pinned': False
         })
         
-        logger.info(f"Message sent to chat {chat_name} by user {session['username']}")
+        logger.info(f"User {session['username']} sent a message in chat {chat_name}")
         return jsonify({'opcode': 0x00, 'message_id': message_ref.id})
         
     except Exception as e:
         logger.error(f"Error sending message: {str(e)}")
-        return jsonify({'opcode': 0x10, 'error_opcode': 0x65})  # Unknown error
+        return jsonify({'opcode': 0x41, 'error_opcode': 0x65})  # Unknown error
 
-# Add add-role-to-user endpoint
-@app.route('/add-role-to-user', methods=['POST'])
-def add_role_to_user():
-    data = request.json
-    auth_token = data.get('authentication_token')
-    opcode = data.get('opcode')
-    chat_name = data.get('chat_name')
-    role_name = data.get('role_name')
-    username = data.get('username')
-    
-    if opcode != 0x14:
-        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
-    
-    # Verify the token
-    session = verify_token(auth_token)
-    if not session:
-        return jsonify({'opcode': 0x14, 'error_opcode': 0x48})  # Invalid token
-    
-    uid = session['uid']
-    
-    try:
-        # Find the chat
-        chat_ref = find_chat_by_name(chat_name)
-        if not chat_ref:
-            return jsonify({'opcode': 0x14, 'error_opcode': 0x22})  # Chat name invalid/does not exist
-            
-        # Check if the role exists
-        role_ref = chat_ref.collection('roles').document(role_name)
-        if not role_ref.get().exists:
-            return jsonify({'opcode': 0x14, 'error_opcode': 0x62})  # Role does not exist
-        
-        # Find the user to add to the role
-        user_to_add = find_user_by_username(username)
-        if not user_to_add:
-            return jsonify({'opcode': 0x14, 'error_opcode': 0x03})  # Username does not exist
-            
-        # Check if the user is a member of the chat
-        chat_data = chat_ref.get().to_dict()
-        if user_to_add.uid not in chat_data.get('members', []):
-            return jsonify({'opcode': 0x14, 'error_opcode': 0x03})  # Username does not exist (in this chat)
-            
-        # Check if the requesting user is the chat creator
-        if chat_data.get('created_by') != uid:
-            return jsonify({'opcode': 0x14, 'error_opcode': 0x49})  # Insufficient permissions
-            
-        # Add the user to the role
-        role_data = role_ref.get().to_dict()
-        role_members = role_data.get('members', [])
-        
-        if user_to_add.uid not in role_members:
-            role_members.append(user_to_add.uid)
-            role_ref.update({'members': role_members})
-            
-        logger.info(f"User {username} added to role {role_name} in chat {chat_name} by {session['username']}")
-        return jsonify({'opcode': 0x00})
-        
-    except Exception as e:
-        logger.error(f"Error adding user to role: {str(e)}")
-        return jsonify({'opcode': 0x14, 'error_opcode': 0x65})  # Unknown error
-
-# Add remove-role-from-user endpoint
-@app.route('/remove-role-from-user', methods=['POST'])
-def remove_role_from_user():
-    data = request.json
-    auth_token = data.get('authentication_token')
-    opcode = data.get('opcode')
-    chat_name = data.get('chat_name')
-    role_name = data.get('role_name')
-    username = data.get('username')
-    
-    if opcode != 0x15:
-        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
-    
-    # Verify the token
-    session = verify_token(auth_token)
-    if not session:
-        return jsonify({'opcode': 0x15, 'error_opcode': 0x48})  # Invalid token
-    
-    uid = session['uid']
-    
-    try:
-        # Find the chat
-        chat_ref = find_chat_by_name(chat_name)
-        if not chat_ref:
-            return jsonify({'opcode': 0x15, 'error_opcode': 0x22})  # Chat name invalid/does not exist
-            
-        # Check if the role exists
-        role_ref = chat_ref.collection('roles').document(role_name)
-        if not role_ref.get().exists:
-            return jsonify({'opcode': 0x15, 'error_opcode': 0x62})  # Role does not exist
-            
-        # Find the user to remove from the role
-        user_to_remove = find_user_by_username(username)
-        if not user_to_remove:
-            return jsonify({'opcode': 0x15, 'error_opcode': 0x03})  # Username does not exist
-            
-        # Check if the requesting user is the chat creator
-        chat_data = chat_ref.get().to_dict()
-        if chat_data.get('created_by') != uid:
-            return jsonify({'opcode': 0x15, 'error_opcode': 0x49})  # Insufficient permissions
-            
-        # Check if the user is a member of the role
-        role_data = role_ref.get().to_dict()
-        role_members = role_data.get('members', [])
-        
-        if user_to_remove.uid not in role_members:
-            # Custom error code for "user not in role"
-            return jsonify({'opcode': 0x15, 'error_opcode': 0x30})  # User does not have this role
-            
-        # Remove the user from the role
-        role_members.remove(user_to_remove.uid)
-        role_ref.update({'members': role_members})
-        
-        logger.info(f"User {username} removed from role {role_name} in chat {chat_name} by {session['username']}")
-        return jsonify({'opcode': 0x00})
-        
-    except Exception as e:
-        logger.error(f"Error removing user from role: {str(e)}")
-        return jsonify({'opcode': 0x15, 'error_opcode': 0x65})  # Unknown error
-
-# Add change-display-name endpoint
-@app.route('/change-display-name', methods=['POST'])
-def change_display_name():
-    data = request.json
-    auth_token = data.get('authentication_token')
-    opcode = data.get('opcode')
-    chat_name = data.get('chat_name')
-    display_name = data.get('display_name')
-    
-    if opcode != 0x06:
-        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
-    
-    # Verify the token
-    session = verify_token(auth_token)
-    if not session:
-        return jsonify({'opcode': 0x06, 'error_opcode': 0x48})  # Invalid token
-    
-    uid = session['uid']
-    
-    try:
-        # Validate display name
-        if not display_name or not isinstance(display_name, str) or len(display_name) < 1 or len(display_name) > 32:
-            return jsonify({'opcode': 0x06, 'error_opcode': 0x06})  # Invalid display name
-            
-        # Find the chat
-        chat_ref = find_chat_by_name(chat_name)
-        if not chat_ref:
-            return jsonify({'opcode': 0x06, 'error_opcode': 0x22})  # Chat name invalid/does not exist
-            
-        # Check if user is a member of the chat
-        chat_data = chat_ref.get().to_dict()
-        if uid not in chat_data.get('members', []):
-            return jsonify({'opcode': 0x06, 'error_opcode': 0x49})  # Insufficient permissions
-            
-        # Update display name preferences for this user in this chat
-        user_prefs_ref = chat_ref.collection('user_preferences').document(uid)
-        user_prefs_ref.set({
-            'display_name': display_name,
-            'updated_at': firestore.SERVER_TIMESTAMP
-        }, merge=True)
-        
-        logger.info(f"User {session['username']} changed display name to {display_name} in chat {chat_name}")
-        return jsonify({'opcode': 0x00})
-        
-    except Exception as e:
-        logger.error(f"Error changing display name: {str(e)}")
-        return jsonify({'opcode': 0x06, 'error_opcode': 0x65})  # Unknown error
-
-# Add leave-chat endpoint
-@app.route('/leave-chat', methods=['POST'])
-def leave_chat():
-    data = request.json
-    auth_token = data.get('authentication_token')
-    opcode = data.get('opcode')
-    chat_name = data.get('chat_name')
-    
-    if opcode != 0x05:
-        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
-    
-    # Verify the token
-    session = verify_token(auth_token)
-    if not session:
-        return jsonify({'opcode': 0x05, 'error_opcode': 0x48})  # Invalid token
-    
-    uid = session['uid']
-    
-    try:
-        # Find the chat
-        chat_ref = find_chat_by_name(chat_name)
-        if not chat_ref:
-            return jsonify({'opcode': 0x05, 'error_opcode': 0x22})  # Chat name invalid/does not exist
-            
-        # Check if user is a member of the chat
-        chat_data = chat_ref.get().to_dict()
-        if uid not in chat_data.get('members', []):
-            return jsonify({'opcode': 0x05, 'error_opcode': 0x49})  # Insufficient permissions
-            
-        # Chat creator cannot leave, they must delete the chat
-        if chat_data.get('created_by') == uid:
-            return jsonify({'opcode': 0x05, 'error_opcode': 0x49})  # Insufficient permissions - chat creator must delete
-            
-        # Remove the user from the chat
-        chat_ref.update({
-            'members': firestore.ArrayRemove([uid])
-        })
-        
-        # Add a system message indicating the user left
-        message_ref = chat_ref.collection('messages').document()
-        message_ref.set({
-            'content': f"{session['username']} left the chat",
-            'sender_uid': uid,
-            'timestamp': firestore.SERVER_TIMESTAMP,
-            'type': 0x02,  # System message type
-            'edited': False
-        })
-        
-        logger.info(f"User {session['username']} left chat {chat_name}")
-        return jsonify({'opcode': 0x00})
-        
-    except Exception as e:
-        logger.error(f"Error leaving chat: {str(e)}")
-        return jsonify({'opcode': 0x05, 'error_opcode': 0x65})  # Unknown error
-
-# Add delete-chat endpoint
-@app.route('/delete-chat', methods=['POST'])
-def delete_chat():
-    data = request.json
-    auth_token = data.get('authentication_token')
-    opcode = data.get('opcode')
-    chat_name = data.get('chat_name')
-    
-    if opcode != 0x07:
-        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
-    
-    # Verify the token
-    session = verify_token(auth_token)
-    if not session:
-        return jsonify({'opcode': 0x07, 'error_opcode': 0x48})  # Invalid token
-    
-    uid = session['uid']
-    
-    try:
-        # Find the chat
-        chat_ref = find_chat_by_name(chat_name)
-        if not chat_ref:
-            return jsonify({'opcode': 0x07, 'error_opcode': 0x22})  # Chat name invalid/does not exist
-            
-        # Check if the user is the creator of the chat
-        chat_data = chat_ref.get().to_dict()
-        if chat_data.get('created_by') != uid:
-            return jsonify({'opcode': 0x07, 'error_opcode': 0x49})  # Insufficient permissions
-            
-        # This is a destructive operation, so we need to be careful
-        
-        # Delete all messages
-        messages = chat_ref.collection('messages').stream()
-        for message in messages:
-            message.reference.delete()
-            
-        # Delete all roles
-        roles = chat_ref.collection('roles').stream()
-        for role in roles:
-            role.reference.delete()
-            
-        # Delete all user preferences
-        user_prefs = chat_ref.collection('user_preferences').stream()
-        for pref in user_prefs:
-            pref.reference.delete()
-            
-        # Finally, delete the chat itself
-        chat_ref.delete()
-        
-        logger.info(f"Chat {chat_name} deleted by user {session['username']}")
-        return jsonify({'opcode': 0x00})
-        
-    except Exception as e:
-        logger.error(f"Error deleting chat: {str(e)}")
-        return jsonify({'opcode': 0x07, 'error_opcode': 0x65})  # Unknown error
-
-# Add create-chat-invite-link endpoint
-@app.route('/create-chat-invite-link', methods=['POST'])
-def create_chat_invite_link():
-    data = request.json
-    auth_token = data.get('authentication_token')
-    opcode = data.get('opcode')
-    chat_name = data.get('chat_name')
-    
-    if opcode != 0x22:
-        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
-    
-    # Verify the token
-    session = verify_token(auth_token)
-    if not session:
-        return jsonify({'opcode': 0x22, 'error_opcode': 0x48})  # Invalid token
-    
-    uid = session['uid']
-    
-    try:
-        # Find the chat
-        chat_ref = find_chat_by_name(chat_name)
-        if not chat_ref:
-            return jsonify({'opcode': 0x22, 'error_opcode': 0x22})  # Chat name invalid/does not exist
-            
-        # Check if the user is the creator of the chat
-        chat_data = chat_ref.get().to_dict()
-        if chat_data.get('created_by') != uid:
-            return jsonify({'opcode': 0x22, 'error_opcode': 0x49})  # Insufficient permissions
-            
-        # Generate a random invite link
-        # Format: chat_id + "r=" + 20 random characters
-        invite_code = ''.join(random.choices(string.ascii_letters + string.digits, k=20))
-        invite_link = f"{chat_ref.id}r={invite_code}"
-        
-        # Store the invite link in the chat document
-        chat_ref.update({
-            'invite_links': firestore.ArrayUnion([invite_link]),
-            'last_invite_link': invite_link
-        })
-        
-        logger.info(f"Invite link created for chat {chat_name} by user {session['username']}")
-        return jsonify({'opcode': 0x00, 'invite_link': invite_link})
-        
-    except Exception as e:
-        logger.error(f"Error creating invite link: {str(e)}")
-        return jsonify({'opcode': 0x22, 'error_opcode': 0x65})  # Unknown error
-
-# Add join-chat-by-link endpoint
-@app.route('/join-chat-by-link', methods=['POST'])
-def join_chat_by_link():
-    data = request.json
-    auth_token = data.get('authentication_token')
-    opcode = data.get('opcode')
-    invite_link = data.get('invite_link')
-    
-    if opcode != 0x23:
-        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
-    
-    # Verify the token
-    session = verify_token(auth_token)
-    if not session:
-        return jsonify({'opcode': 0x23, 'error_opcode': 0x48})  # Invalid token
-    
-    uid = session['uid']
-    
-    try:
-        # Validate invite link format
-        if not invite_link or not isinstance(invite_link, str) or 'r=' not in invite_link:
-            return jsonify({'opcode': 0x23, 'error_opcode': 0x50})  # Invalid invite link format
-            
-        # Extract chat ID from the invite link
-        chat_id = invite_link.split('r=')[0]
-        
-        # Get the chat
-        chat_ref = db.collection('chats').document(chat_id)
-        chat = chat_ref.get()
-        
-        if not chat.exists:
-            return jsonify({'opcode': 0x23, 'error_opcode': 0x51})  # Chat not found
-            
-        chat_data = chat.to_dict()
-        
-        # Verify that the invite link is valid
-        if invite_link not in chat_data.get('invite_links', []):
-            return jsonify({'opcode': 0x23, 'error_opcode': 0x52})  # Invalid invite link
-            
-        # Check if the user is already a member
-        if uid in chat_data.get('members', []):
-            # Not an error, but we'll inform the client
-            return jsonify({
-                'opcode': 0x00, 
-                'message': 'Already a member', 
-                'chat_name': chat_data.get('name', 'Unnamed Chat')
-            })
-            
-        # Add the user to the chat
-        chat_ref.update({
-            'members': firestore.ArrayUnion([uid])
-        })
-        
-        # Add a system message
-        message_ref = chat_ref.collection('messages').document()
-        message_ref.set({
-            'content': f"{session['username']} joined the chat via invite link",
-            'sender_uid': uid,
-            'timestamp': firestore.SERVER_TIMESTAMP,
-            'type': 0x02,  # System message type
-            'edited': False
-        })
-        
-        logger.info(f"User {session['username']} joined chat {chat_data.get('name')} via invite link")
-        return jsonify({
-            'opcode': 0x00,
-            'chat_name': chat_data.get('name', 'Unnamed Chat')
-        })
-        
-    except Exception as e:
-        logger.error(f"Error joining chat via invite link: {str(e)}")
-        return jsonify({'opcode': 0x23, 'error_opcode': 0x65})  # Unknown error
-
-# Add poke-user endpoint
-@app.route('/poke-user', methods=['POST'])
-def poke_user():
-    data = request.json
-    auth_token = data.get('authentication_token')
-    opcode = data.get('opcode')
-    chat_name = data.get('chat_name')
-    username = data.get('username')  # The username to poke
-    
-    if opcode != 0x19:
-        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
-    
-    # Verify the token
-    session = verify_token(auth_token)
-    if not session:
-        return jsonify({'opcode': 0x19, 'error_opcode': 0x48})  # Invalid token
-    
-    uid = session['uid']
-    
-    try:
-        # Find the chat
-        chat_ref = find_chat_by_name(chat_name)
-        if not chat_ref:
-            return jsonify({'opcode': 0x19, 'error_opcode': 0x22})  # Chat name invalid/does not exist
-            
-        # Find the user to poke
-        user_to_poke = find_user_by_username(username)
-        if not user_to_poke:
-            return jsonify({'opcode': 0x19, 'error_opcode': 0x03})  # Username does not exist
-            
-        # Check if both users are members of the chat
-        chat_data = chat_ref.get().to_dict()
-        if uid not in chat_data.get('members', []):
-            return jsonify({'opcode': 0x19, 'error_opcode': 0x49})  # Insufficient permissions
-            
-        if user_to_poke.uid not in chat_data.get('members', []):
-            return jsonify({'opcode': 0x19, 'error_opcode': 0x03})  # User to poke is not in the chat
-            
-        # Don't allow poking yourself
-        if uid == user_to_poke.uid:
-            return jsonify({'opcode': 0x19, 'error_opcode': 0x49})  # Can't poke yourself
-            
-        # Create a poke message
-        message_ref = chat_ref.collection('messages').document()
-        message_ref.set({
-            'content': f"{session['username']} poked {username}",
-            'sender_uid': uid,
-            'timestamp': firestore.SERVER_TIMESTAMP,
-            'type': 0x01,  # Poke message type
-            'edited': False
-        })
-        
-        logger.info(f"User {session['username']} poked {username} in chat {chat_name}")
-        return jsonify({'opcode': 0x00})
-        
-    except Exception as e:
-        logger.error(f"Error poking user: {str(e)}")
-        return jsonify({'opcode': 0x19, 'error_opcode': 0x65})  # Unknown error
-
-# Add pinMessage endpoint
-@app.route('/pin-message', methods=['POST'])
-def pin_message():
-    data = request.json
-    auth_token = data.get('authentication_token')
-    opcode = data.get('opcode')
-    chat_name = data.get('chat_name')
-    message_id = data.get('message_id')
-    
-    if opcode != 0x17:
-        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
-    
-    # Verify the token
-    session = verify_token(auth_token)
-    if not session:
-        return jsonify({'opcode': 0x17, 'error_opcode': 0x48})  # Invalid token
-    
-    uid = session['uid']
-    
-    try:
-        # Find the chat
-        chat_ref = find_chat_by_name(chat_name)
-        if not chat_ref:
-            return jsonify({'opcode': 0x17, 'error_opcode': 0x22})  # Chat name invalid/does not exist
-            
-        # Check if the user is a member of the chat
-        chat_data = chat_ref.get().to_dict()
-        if uid not in chat_data.get('members', []):
-            return jsonify({'opcode': 0x17, 'error_opcode': 0x49})  # Insufficient permissions
-            
-        # Check if the message exists
-        message_ref = chat_ref.collection('messages').document(message_id)
-        message = message_ref.get()  # Fix: Changed message.get() to message_ref.get()
-        if not message.exists:
-            return jsonify({'opcode': 0x17, 'error_opcode': 0x43})  # Invalid message ID
-            
-        # First, unpin any currently pinned messages
-        pinned_messages = chat_ref.collection('messages').where('pinned', '==', True).get()
-        for pinned_msg in pinned_messages:
-            pinned_msg.reference.update({'pinned': False})
-            
-        # Pin the new message
-        message_ref.update({'pinned': True})
-        
-        logger.info(f"Message {message_id} pinned in chat {chat_name} by user {session['username']}")
-        return jsonify({'opcode': 0x00})
-        
-    except Exception as e:
-        logger.error(f"Error pinning message: {str(e)}")
-        return jsonify({'opcode': 0x17, 'error_opcode': 0x65})  # Unknown error
-
-# Add unpinMessage endpoint
-@app.route('/unpin-message', methods=['POST'])
-def unpin_message():
-    data = request.json
-    auth_token = data.get('authentication_token')
-    opcode = data.get('opcode')
-    chat_name = data.get('chat_name')
-    message_id = data.get('message_id')
-    
-    if opcode != 0x18:
-        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
-    
-    # Verify the token
-    session = verify_token(auth_token)
-    if not session:
-        return jsonify({'opcode': 0x18, 'error_opcode': 0x48})  # Invalid token
-    
-    uid = session['uid']
-    
-    try:
-        # Find the chat
-        chat_ref = find_chat_by_name(chat_name)
-        if not chat_ref:
-            return jsonify({'opcode': 0x18, 'error_opcode': 0x22})  # Chat name invalid/does not exist
-            
-        # Check if the user is a member of the chat
-        chat_data = chat_ref.get().to_dict()
-        if uid not in chat_data.get('members', []):
-            return jsonify({'opcode': 0x18, 'error_opcode': 0x49})  # Insufficient permissions
-            
-        # Check if the message exists
-        message_ref = chat_ref.collection('messages').document(message_id)
-        message = message_ref.get()  # Fix: Changed message.get() to message_ref.get()
-        if not message.exists:
-            return jsonify({'opcode': 0x18, 'error_opcode': 0x43})  # Invalid message ID
-            
-        # Check if the message is actually pinned
-        message_data = message.to_dict()
-        if not message_data.get('pinned', False):
-            # Not an error, but worth logging
-            logger.info(f"Attempt to unpin message {message_id} that is not pinned")
-            return jsonify({'opcode': 0x00})  # Success (nothing to do)
-            
-        # Unpin the message
-        message_ref.update({'pinned': False})
-        
-        logger.info(f"Message {message_id} unpinned in chat {chat_name} by user {session['username']}")
-        return jsonify({'opcode': 0x00})
-        
-    except Exception as e:
-        logger.error(f"Error unpinning message: {str(e)}")
-        return jsonify({'opcode': 0x18, 'error_opcode': 0x65})  # Unknown error
-
-# Add missing edit-message endpoint
+# Edit Message Endpoint
 @app.route('/edit-message', methods=['POST'])
 def edit_message():
     data = request.json
@@ -1132,64 +800,59 @@ def edit_message():
     chat_name = data.get('chat_name')
     message_id = data.get('message_id')
     updated_message = data.get('updated_message')
-    message_type = data.get('message_type', 0)
+    message_type = data.get('message_type', 0x00)
     
-    if opcode != 0x11:
+    if opcode != 0x42:  # Changed from 0x31 to 0x42
         return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
     
-    # Verify the token
     session = verify_token(auth_token)
     if not session:
-        return jsonify({'opcode': 0x11, 'error_opcode': 0x48})  # Invalid token
+        return jsonify({'opcode': 0x42, 'error_opcode': 0x48})  # Invalid token
     
     uid = session['uid']
     
     try:
-        # Validate message content
-        if not updated_message or not isinstance(updated_message, str):
-            return jsonify({'opcode': 0x11, 'error_opcode': 0x41})  # Invalid message content
-            
-        # Validate message type
-        if not isinstance(message_type, int):
-            return jsonify({'opcode': 0x11, 'error_opcode': 0x42})  # Invalid message type
-            
         # Find the chat
         chat_ref = find_chat_by_name(chat_name)
         if not chat_ref:
-            return jsonify({'opcode': 0x11, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            return jsonify({'opcode': 0x42, 'error_opcode': 0x22})  # Chat name invalid/does not exist
             
-        # Check if the user is a member of the chat
-        chat_data = chat_ref.get().to_dict()
-        if uid not in chat_data.get('members', []):
-            return jsonify({'opcode': 0x11, 'error_opcode': 0x49})  # Insufficient permissions
+        # Validate message content
+        if not updated_message or len(updated_message) > 2000:
+            return jsonify({'opcode': 0x42, 'error_opcode': 0x41})  # Invalid message content
             
-        # Check if the message exists
+        # Validate message type
+        if message_type not in [0x00, 0x01, 0x02]:  # Normal, Poke, System
+            return jsonify({'opcode': 0x42, 'error_opcode': 0x42})  # Invalid message type
+            
+        # Check if message exists
         message_ref = chat_ref.collection('messages').document(message_id)
-        message = message_ref.get()  # Fix: Changed message.get() to message_ref.get()
-        if not message.exists:
-            return jsonify({'opcode': 0x11, 'error_opcode': 0x43})  # Invalid message ID
+        message_doc = message_ref.get()
+        
+        if not message_doc.exists:
+            return jsonify({'opcode': 0x42, 'error_opcode': 0x43})  # Invalid message ID
             
+        message_data = message_doc.to_dict()
+        
         # Check if the user is the sender of the message
-        message_data = message.to_dict()
         if message_data.get('sender_uid') != uid:
-            return jsonify({'opcode': 0x11, 'error_opcode': 0x49})  # Insufficient permissions
+            return jsonify({'opcode': 0x42, 'error_opcode': 0x49})  # Insufficient permissions
             
         # Update the message
         message_ref.update({
             'content': updated_message,
             'type': message_type,
-            'edited': True,
-            'edited_at': firestore.SERVER_TIMESTAMP
+            'edited': True
         })
         
-        logger.info(f"Message {message_id} edited in chat {chat_name} by user {session['username']}")
+        logger.info(f"User {session['username']} edited a message in chat {chat_name}")
         return jsonify({'opcode': 0x00})
         
     except Exception as e:
         logger.error(f"Error editing message: {str(e)}")
-        return jsonify({'opcode': 0x11, 'error_opcode': 0x65})  # Unknown error
+        return jsonify({'opcode': 0x42, 'error_opcode': 0x65})  # Unknown error
 
-# Add missing delete-message endpoint
+# Delete Message Endpoint
 @app.route('/delete-message', methods=['POST'])
 def delete_message():
     data = request.json
@@ -1198,13 +861,12 @@ def delete_message():
     chat_name = data.get('chat_name')
     message_id = data.get('message_id')
     
-    if opcode != 0x12:
+    if opcode != 0x43:  # Changed from 0x32 to 0x43
         return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
     
-    # Verify the token
     session = verify_token(auth_token)
     if not session:
-        return jsonify({'opcode': 0x12, 'error_opcode': 0x48})  # Invalid token
+        return jsonify({'opcode': 0x43, 'error_opcode': 0x48})  # Invalid token
     
     uid = session['uid']
     
@@ -1212,193 +874,717 @@ def delete_message():
         # Find the chat
         chat_ref = find_chat_by_name(chat_name)
         if not chat_ref:
-            return jsonify({'opcode': 0x12, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            return jsonify({'opcode': 0x43, 'error_opcode': 0x22})  # Chat name invalid/does not exist
             
-        # Check if the user is a member of the chat
-        chat_data = chat_ref.get().to_dict()
-        if uid not in chat_data.get('members', []):
-            return jsonify({'opcode': 0x12, 'error_opcode': 0x49})  # Insufficient permissions
-            
-        # Check if the message exists
+        # Check if message exists
         message_ref = chat_ref.collection('messages').document(message_id)
-        message = message_ref.get()  # Fix: Changed message.get() to message_ref.get()
-        if not message.exists:
-            return jsonify({'opcode': 0x12, 'error_opcode': 0x43})  # Invalid message ID
+        message_doc = message_ref.get()
+        
+        if not message_doc.exists:
+            return jsonify({'opcode': 0x43, 'error_opcode': 0x43})  # Invalid message ID
             
-        # Check if the user is the sender of the message or the chat creator
-        message_data = message.to_dict()
-        is_sender = message_data.get('sender_uid') == uid
+        message_data = message_doc.to_dict()
+        
+        # Check if the user is the sender of the message or chat creator
+        chat_data = chat_ref.get().to_dict()
         is_chat_creator = chat_data.get('created_by') == uid
         
-        if not (is_sender or is_chat_creator):
-            return jsonify({'opcode': 0x12, 'error_opcode': 0x49})  # Insufficient permissions
+        if message_data.get('sender_uid') != uid and not is_chat_creator:
+            return jsonify({'opcode': 0x43, 'error_opcode': 0x49})  # Insufficient permissions
             
         # Delete the message
         message_ref.delete()
         
-        logger.info(f"Message {message_id} deleted from chat {chat_name} by user {session['username']}")
+        logger.info(f"User {session['username']} deleted a message in chat {chat_name}")
         return jsonify({'opcode': 0x00})
         
     except Exception as e:
         logger.error(f"Error deleting message: {str(e)}")
-        return jsonify({'opcode': 0x12, 'error_opcode': 0x65})  # Unknown error
+        return jsonify({'opcode': 0x43, 'error_opcode': 0x65})  # Unknown error
 
-# Add block-user endpoint
-@app.route('/block-user', methods=['POST'])
-def block_user():
+# Pin Message Endpoint
+@app.route('/pin-message', methods=['POST'])
+def pin_message():
     data = request.json
     auth_token = data.get('authentication_token')
     opcode = data.get('opcode')
-    username_to_block = data.get('username_to_block')
+    chat_name = data.get('chat_name')
+    message_id = data.get('message_id')
     
-    if opcode != 0x08:
+    if opcode != 0x44:  # Changed from 0x17 to 0x44
         return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
     
-    # Verify the token
     session = verify_token(auth_token)
     if not session:
-        return jsonify({'opcode': 0x08, 'error_opcode': 0x48})  # Invalid token
+        return jsonify({'opcode': 0x44, 'error_opcode': 0x48})  # Invalid token
     
     uid = session['uid']
     
     try:
-        # Find the user to block
-        user_to_block = find_user_by_username(username_to_block)
-        if not user_to_block:
-            return jsonify({'opcode': 0x08, 'error_opcode': 0x03})  # Username does not exist
+        # Find the chat
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x44, 'error_opcode': 0x22})  # Chat name invalid/does not exist
             
-        # Can't block yourself
-        if user_to_block.uid == uid:
-            return jsonify({'opcode': 0x08, 'error_opcode': 0x49})  # Insufficient permissions
+        # Check if user is a member of the chat
+        chat_data = chat_ref.get().to_dict()
+        if uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x44, 'error_opcode': 0x49})  # Insufficient permissions
             
-        # Get the current user's document
-        user_ref = db.collection('users').document(uid)
-        user_doc = user_ref.get()
+        # Check if message exists
+        message_ref = chat_ref.collection('messages').document(message_id)
+        message_doc = message_ref.get()
         
-        if not user_doc.exists:
-            logger.error(f"User document {uid} not found")
-            return jsonify({'opcode': 0x08, 'error_opcode': 0x65})  # Unknown error
+        if not message_doc.exists:
+            return jsonify({'opcode': 0x44, 'error_opcode': 0x43})  # Invalid message ID
             
-        user_data = user_doc.to_dict()
-        blocked_users = user_data.get('blocked_users', [])
-        
-        # Check if the user is already blocked
-        if user_to_block.uid in blocked_users:
-            return jsonify({'opcode': 0x08, 'error_opcode': 0x11})  # User is already blocked
+        # Unpin any existing pinned messages
+        pinned_query = chat_ref.collection('messages').where('pinned', '==', True).get()
+        for pinned_doc in pinned_query:
+            chat_ref.collection('messages').document(pinned_doc.id).update({'pinned': False})
             
-        # Add the user to the blocked list
-        blocked_users.append(user_to_block.uid)
-        user_ref.update({'blocked_users': blocked_users})
+        # Pin the new message
+        message_ref.update({'pinned': True})
         
-        logger.info(f"User {username_to_block} blocked by {session['username']}")
+        logger.info(f"User {session['username']} pinned a message in chat {chat_name}")
         return jsonify({'opcode': 0x00})
         
     except Exception as e:
-        logger.error(f"Error blocking user: {str(e)}")
-        return jsonify({'opcode': 0x08, 'error_opcode': 0x65})  # Unknown error
+        logger.error(f"Error pinning message: {str(e)}")
+        return jsonify({'opcode': 0x44, 'error_opcode': 0x65})  # Unknown error
 
-# Add unblock-user endpoint
-@app.route('/unblock-user', methods=['POST'])
-def unblock_user():
+# Unpin Message Endpoint
+@app.route('/unpin-message', methods=['POST'])
+def unpin_message():
     data = request.json
     auth_token = data.get('authentication_token')
     opcode = data.get('opcode')
-    username_to_unblock = data.get('username_to_unblock')
+    chat_name = data.get('chat_name')
+    message_id = data.get('message_id')
     
-    if opcode != 0x09:
+    if opcode != 0x45:  # Changed from 0x18 to 0x45
         return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
     
-    # Verify the token
     session = verify_token(auth_token)
     if not session:
-        return jsonify({'opcode': 0x09, 'error_opcode': 0x48})  # Invalid token
+        return jsonify({'opcode': 0x45, 'error_opcode': 0x48})  # Invalid token
     
     uid = session['uid']
     
     try:
-        # Find the user to unblock
-        user_to_unblock = find_user_by_username(username_to_unblock)
-        if not user_to_unblock:
-            return jsonify({'opcode': 0x09, 'error_opcode': 0x03})  # Username does not exist
+        # Find the chat
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x45, 'error_opcode': 0x22})  # Chat name invalid/does not exist
             
-        # Get the current user's document
-        user_ref = db.collection('users').document(uid)
-        user_doc = user_ref.get()
-        
-        if not user_doc.exists:
-            logger.error(f"User document {uid} not found")
-            return jsonify({'opcode': 0x09, 'error_opcode': 0x65})  # Unknown error
+        # Check if user is a member of the chat
+        chat_data = chat_ref.get().to_dict()
+        if uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x45, 'error_opcode': 0x49})  # Insufficient permissions
             
-        user_data = user_doc.to_dict()
-        blocked_users = user_data.get('blocked_users', [])
+        # Check if message exists
+        message_ref = chat_ref.collection('messages').document(message_id)
+        message_doc = message_ref.get()
         
-        # Check if the user is actually blocked
-        if user_to_unblock.uid not in blocked_users:
-            return jsonify({'opcode': 0x09, 'error_opcode': 0x12})  # Unable to unblock
+        if not message_doc.exists:
+            return jsonify({'opcode': 0x45, 'error_opcode': 0x43})  # Invalid message ID
             
-        # Remove the user from the blocked list
-        blocked_users.remove(user_to_unblock.uid)
-        user_ref.update({'blocked_users': blocked_users})
+        # Check if message is actually pinned
+        message_data = message_doc.to_dict()
+        if not message_data.get('pinned', False):
+            return jsonify({'opcode': 0x45, 'error_opcode': 0x49})  # Insufficient permissions (or message not pinned)
+            
+        # Unpin the message
+        message_ref.update({'pinned': False})
         
-        logger.info(f"User {username_to_unblock} unblocked by {session['username']}")
+        logger.info(f"User {session['username']} unpinned a message in chat {chat_name}")
         return jsonify({'opcode': 0x00})
         
     except Exception as e:
-        logger.error(f"Error unblocking user: {str(e)}")
-        return jsonify({'opcode': 0x09, 'error_opcode': 0x65})  # Unknown error
+        logger.error(f"Error unpinning message: {str(e)}")
+        return jsonify({'opcode': 0x45, 'error_opcode': 0x65})  # Unknown error
 
-# Add create-role endpoint
+# Request Chat(s) Endpoint - opcode 0x26
+@app.route('/get-all-chats', methods=['POST'])
+def get_all_chats():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    
+    if opcode != 0x26:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x26, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        # Get all chats where the user is a member
+        chats_ref = db.collection('chats')
+        query = chats_ref.where('members', 'array_contains', uid).get()
+        
+        chat_ids = []
+        chat_names = []
+        
+        for chat_doc in query:
+            chat_data = chat_doc.to_dict()
+            chat_ids.append(chat_doc.id)
+            chat_names.append(chat_data.get('name', 'Unnamed Chat'))
+        
+        # Format response as BEL-separated strings
+        bel_separator = '\x07'  # ASCII BEL character
+        chat_ids_str = bel_separator.join(chat_ids)
+        chat_names_str = bel_separator.join(chat_names)
+        
+        logger.info(f"User {session['username']} retrieved all chats, count: {len(chat_ids)}")
+        return jsonify({
+            'opcode': 0x00, 
+            'chat_ids': chat_ids_str, 
+            'chat_names': chat_names_str
+        })
+        
+    except Exception as e:
+        logger.error(f"Error retrieving all chats: {str(e)}")
+        return jsonify({'opcode': 0x26, 'error_opcode': 0x65})  # Unknown error
+
+# Request Messages in Chat Endpoint - opcode 0x46
+@app.route('/get-messages-range', methods=['POST'])
+def get_messages_range():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_id')
+    start_index = data.get('start_index', 0)
+    end_index = data.get('end_index', -1)
+    
+    if opcode != 0x46:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x46, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x46, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            
+        chat_data = chat_ref.get().to_dict()
+        if uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x46, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        # Get total message count to validate indices
+        total_messages = len(list(chat_ref.collection('messages').get()))
+        
+        # Validate indices
+        if start_index < 0 or (total_messages > 0 and start_index >= total_messages):
+            return jsonify({'opcode': 0x46, 'error_opcode': 0x44})  # Invalid starting message index
+            
+        if end_index != -1 and (end_index < start_index or end_index >= total_messages):
+            return jsonify({'opcode': 0x46, 'error_opcode': 0x45})  # Invalid ending message index
+            
+        # Get blocked users for filtering messages
+        user_doc = db.collection('users').document(uid).get()
+        blocked_users = []
+        if user_doc.exists:
+            user_data = user_doc.to_dict()
+            blocked_users = user_data.get('blocked_users', [])
+            
+        # Get messages ordered by timestamp (ascending for proper indexing)
+        messages_query = chat_ref.collection('messages').order_by('timestamp', direction=firestore.Query.ASCENDING).get()
+        
+        # Convert to list for indexing
+        messages_list = list(messages_query)
+        
+        # Apply range filtering
+        if end_index == -1:
+            selected_messages = messages_list[start_index:]
+        else:
+            selected_messages = messages_list[start_index:end_index+1]
+        
+        # Prepare response data
+        usernames = []
+        message_contents = []
+        message_types = []
+        timestamps = []
+        message_ids = []
+        
+        for msg_doc in selected_messages:
+            msg_data = msg_doc.to_dict()
+            sender_uid = msg_data.get('sender_uid')
+            
+            # Skip messages from blocked users
+            if sender_uid in blocked_users:
+                continue
+                
+            # Get sender username
+            try:
+                sender = auth.get_user(sender_uid)
+                sender_username = sender.display_name or sender.email.split('@')[0]
+            except:
+                sender_username = "Unknown User"
+                
+            usernames.append(sender_username)
+            message_contents.append(msg_data.get('content', ''))
+            message_types.append(str(msg_data.get('type', 0)))
+            
+            # Convert timestamp to milliseconds since epoch
+            timestamp = msg_data.get('timestamp')
+            if timestamp:
+                timestamp_ms = int(timestamp.timestamp() * 1000)
+            else:
+                timestamp_ms = 0
+            timestamps.append(str(timestamp_ms))
+            
+            message_ids.append(msg_doc.id)
+        
+        # Format response as BEL-separated strings
+        bel_separator = '\x07'  # ASCII BEL character
+        usernames_str = bel_separator.join(usernames)
+        message_contents_str = bel_separator.join(message_contents)
+        message_types_str = bel_separator.join(message_types)
+        timestamps_str = bel_separator.join(timestamps)
+        message_ids_str = bel_separator.join(message_ids)
+        
+        logger.info(f"User {session['username']} retrieved messages from chat {chat_name}, range: {start_index} to {end_index}")
+        return jsonify({
+            'opcode': 0x00, 
+            'usernames': usernames_str,
+            'messages': message_contents_str,
+            'message_types': message_types_str,
+            'timestamps': timestamps_str,
+            'message_ids': message_ids_str
+        })
+        
+    except Exception as e:
+        logger.error(f"Error retrieving messages range: {str(e)}")
+        return jsonify({'opcode': 0x46, 'error_opcode': 0x65})  # Unknown error
+
+# Request Latest Message Index in Chat - opcode 0x47
+@app.route('/get-latest-message-index', methods=['POST'])
+def get_latest_message_index():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_id')
+    
+    if opcode != 0x47:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x47, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x47, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            
+        chat_data = chat_ref.get().to_dict()
+        if uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x47, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        # Get total message count
+        messages_query = chat_ref.collection('messages').get()
+        message_count = len(list(messages_query))
+        latest_index = message_count - 1 if message_count > 0 else -1
+        
+        logger.info(f"User {session['username']} retrieved latest message index from chat {chat_name}: {latest_index}")
+        return jsonify({'opcode': 0x00, 'latest_index': latest_index})
+        
+    except Exception as e:
+        logger.error(f"Error retrieving latest message index: {str(e)}")
+        return jsonify({'opcode': 0x47, 'error_opcode': 0x65})  # Unknown error
+
+# Request Pinned Message Index in Chat - opcode 0x48
+@app.route('/get-pinned-message-ids', methods=['POST'])
+def get_pinned_message_ids():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_id')
+    
+    if opcode != 0x48:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x48, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x48, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            
+        chat_data = chat_ref.get().to_dict()
+        if uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x48, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        # Get pinned messages
+        pinned_query = chat_ref.collection('messages').where('pinned', '==', True).get()
+        pinned_message_ids = [doc.id for doc in pinned_query]
+        
+        # Format response as BEL-separated string
+        bel_separator = '\x07'  # ASCII BEL character
+        pinned_ids_str = bel_separator.join(pinned_message_ids)
+        
+        logger.info(f"User {session['username']} retrieved pinned message IDs from chat {chat_name}")
+        return jsonify({'opcode': 0x00, 'pinned_message_ids': pinned_ids_str})
+        
+    except Exception as e:
+        logger.error(f"Error retrieving pinned message IDs: {str(e)}")
+        return jsonify({'opcode': 0x48, 'error_opcode': 0x65})  # Unknown error
+
+# Create Role in Chat - opcode 0x61
 @app.route('/create-role', methods=['POST'])
 def create_role():
     data = request.json
     auth_token = data.get('authentication_token')
     opcode = data.get('opcode')
-    chat_name = data.get('chat_name')
+    chat_name = data.get('chat_id')
     role_name = data.get('role_name')
+    permissions = data.get('permissions', 0)
     
-    if opcode != 0x13:
+    if opcode != 0x61:
         return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
     
-    # Verify the token
     session = verify_token(auth_token)
     if not session:
-        return jsonify({'opcode': 0x13, 'error_opcode': 0x48})  # Invalid token
+        return jsonify({'opcode': 0x61, 'error_opcode': 0x48})  # Invalid token
     
     uid = session['uid']
     
     try:
-        # Validate role name
-        if not role_name or not isinstance(role_name, str) or len(role_name) < 1 or len(role_name) > 32:
-            return jsonify({'opcode': 0x13, 'error_opcode': 0x61})  # Role name invalid
-            
-        # Find the chat
         chat_ref = find_chat_by_name(chat_name)
         if not chat_ref:
-            return jsonify({'opcode': 0x13, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            return jsonify({'opcode': 0x61, 'error_opcode': 0x22})  # Chat name invalid/does not exist
             
-        # Check if the user is the creator of the chat
+        # Validate role name
+        if not role_name or len(role_name) < 1 or len(role_name) > 32:
+            return jsonify({'opcode': 0x61, 'error_opcode': 0x61})  # Role name invalid
+            
+        # Validate permissions
+        if permissions < 0 or permissions > 3:
+            return jsonify({'opcode': 0x61, 'error_opcode': 0x63})  # Invalid permissions
+            
+        # Check if user is the chat creator (only creators can create roles)
         chat_data = chat_ref.get().to_dict()
         if chat_data.get('created_by') != uid:
-            return jsonify({'opcode': 0x13, 'error_opcode': 0x49})  # Insufficient permissions
+            return jsonify({'opcode': 0x61, 'error_opcode': 0x49})  # Insufficient permissions
             
-        # Check if the role already exists
-        role_ref = chat_ref.collection('roles').document(role_name)
-        if role_ref.get().exists:
-            return jsonify({'opcode': 0x13, 'error_opcode': 0x61})  # Role name invalid
+        # Check if role already exists
+        roles_collection = chat_ref.collection('roles')
+        existing_role_query = roles_collection.where('name', '==', role_name).limit(1).get()
+        if len(list(existing_role_query)) > 0:
+            return jsonify({'opcode': 0x61, 'error_opcode': 0x61})  # Role name invalid/already exists
             
         # Create the role
+        role_ref = roles_collection.document()
         role_ref.set({
-            'created_by': uid,
+            'name': role_name,
+            'permissions': permissions,
             'created_at': firestore.SERVER_TIMESTAMP,
             'members': []
         })
         
-        logger.info(f"Role {role_name} created in chat {chat_name} by user {session['username']}")
+        logger.info(f"User {session['username']} created role '{role_name}' in chat {chat_name}")
         return jsonify({'opcode': 0x00})
         
     except Exception as e:
         logger.error(f"Error creating role: {str(e)}")
-        return jsonify({'opcode': 0x13, 'error_opcode': 0x65})  # Unknown error
+        return jsonify({'opcode': 0x61, 'error_opcode': 0x65})  # Unknown error
+
+# Add Role to User in Chat - opcode 0x62
+@app.route('/add-role-to-user', methods=['POST'])
+def add_role_to_user():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_id')
+    role_name = data.get('role_name')
+    username = data.get('username')
+    
+    if opcode != 0x62:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x62, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x62, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            
+        # Check if user is the chat creator (only creators can assign roles)
+        chat_data = chat_ref.get().to_dict()
+        if chat_data.get('created_by') != uid:
+            return jsonify({'opcode': 0x62, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        # Find the user to assign role to
+        user_to_assign = find_user_by_username(username)
+        if not user_to_assign:
+            return jsonify({'opcode': 0x62, 'error_opcode': 0x03})  # Username does not exist
+            
+        target_uid = user_to_assign.uid
+            
+        # Check if user is a member of the chat
+        if target_uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x62, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        # Find the role
+        roles_collection = chat_ref.collection('roles')
+        role_query = roles_collection.where('name', '==', role_name).limit(1).get()
+        
+        if not role_query or len(role_query) == 0:
+            return jsonify({'opcode': 0x62, 'error_opcode': 0x62})  # Role does not exist
+            
+        role_ref = roles_collection.document(role_query[0].id)
+        role_data = role_query[0].to_dict()
+        
+        # Add user to role if not already a member
+        role_members = role_data.get('members', [])
+        if target_uid not in role_members:
+            role_members.append(target_uid)
+            role_ref.update({'members': role_members})
+        
+        logger.info(f"User {session['username']} added role '{role_name}' to user '{username}' in chat {chat_name}")
+        return jsonify({'opcode': 0x00})
+        
+    except Exception as e:
+        logger.error(f"Error adding role to user: {str(e)}")
+        return jsonify({'opcode': 0x62, 'error_opcode': 0x65})  # Unknown error
+
+# Remove Role from User in Chat - opcode 0x63
+@app.route('/remove-role-from-user', methods=['POST'])
+def remove_role_from_user():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_id')
+    role_name = data.get('role_name')
+    username = data.get('username')
+    
+    if opcode != 0x63:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x63, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x63, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            
+        # Check if user is the chat creator (only creators can remove roles)
+        chat_data = chat_ref.get().to_dict()
+        if chat_data.get('created_by') != uid:
+            return jsonify({'opcode': 0x63, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        # Find the user to remove role from
+        user_to_remove = find_user_by_username(username)
+        if not user_to_remove:
+            return jsonify({'opcode': 0x63, 'error_opcode': 0x03})  # Username does not exist
+            
+        target_uid = user_to_remove.uid
+            
+        # Find the role
+        roles_collection = chat_ref.collection('roles')
+        role_query = roles_collection.where('name', '==', role_name).limit(1).get()
+        
+        if not role_query or len(role_query) == 0:
+            return jsonify({'opcode': 0x63, 'error_opcode': 0x62})  # Role does not exist
+            
+        role_ref = roles_collection.document(role_query[0].id)
+        role_data = role_query[0].to_dict()
+        
+        # Remove user from role if they are a member
+        role_members = role_data.get('members', [])
+        if target_uid in role_members:
+            role_members.remove(target_uid)
+            role_ref.update({'members': role_members})
+        else:
+            return jsonify({'opcode': 0x63, 'error_opcode': 0x62})  # User does not have this role
+        
+        logger.info(f"User {session['username']} removed role '{role_name}' from user '{username}' in chat {chat_name}")
+        return jsonify({'opcode': 0x00})
+        
+    except Exception as e:
+        logger.error(f"Error removing role from user: {str(e)}")
+        return jsonify({'opcode': 0x63, 'error_opcode': 0x65})  # Unknown error
+
+# Delete Role from Chat - opcode 0x64
+@app.route('/delete-role', methods=['POST'])
+def delete_role():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_id')
+    role_name = data.get('role_name')
+    
+    if opcode != 0x64:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x64, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x64, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            
+        # Check if user is the chat creator (only creators can delete roles)
+        chat_data = chat_ref.get().to_dict()
+        if chat_data.get('created_by') != uid:
+            return jsonify({'opcode': 0x64, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        # Find the role
+        roles_collection = chat_ref.collection('roles')
+        role_query = roles_collection.where('name', '==', role_name).limit(1).get()
+        
+        if not role_query or len(role_query) == 0:
+            return jsonify({'opcode': 0x64, 'error_opcode': 0x62})  # Role does not exist
+            
+        role_ref = roles_collection.document(role_query[0].id)
+        
+        # Delete the role
+        role_ref.delete()
+        
+        logger.info(f"User {session['username']} deleted role '{role_name}' from chat {chat_name}")
+        return jsonify({'opcode': 0x00})
+        
+    except Exception as e:
+        logger.error(f"Error deleting role: {str(e)}")
+        return jsonify({'opcode': 0x64, 'error_opcode': 0x65})  # Unknown error
+
+# Query Roles in Chat - opcode 0x65
+@app.route('/get-roles', methods=['POST'])
+def get_roles():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_id')
+    
+    if opcode != 0x65:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x65, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x65, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            
+        chat_data = chat_ref.get().to_dict()
+        if uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x65, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        # Get all roles in the chat
+        roles_collection = chat_ref.collection('roles')
+        roles_query = roles_collection.get()
+        
+        role_names = []
+        role_permissions = []
+        
+        for role_doc in roles_query:
+            role_data = role_doc.to_dict()
+            role_names.append(role_data.get('name', 'Unnamed Role'))
+            role_permissions.append(str(role_data.get('permissions', 0)))
+        
+        # Format response as BEL-separated strings
+        bel_separator = '\x07'  # ASCII BEL character
+        role_names_str = bel_separator.join(role_names)
+        role_permissions_str = bel_separator.join(role_permissions)
+        
+        logger.info(f"User {session['username']} retrieved roles from chat {chat_name}")
+        return jsonify({
+            'opcode': 0x00, 
+            'role_names': role_names_str, 
+            'role_permissions': role_permissions_str
+        })
+        
+    except Exception as e:
+        logger.error(f"Error retrieving roles: {str(e)}")
+        return jsonify({'opcode': 0x65, 'error_opcode': 0x65})  # Unknown error
+
+# Query Users in Role in Chat - opcode 0x66
+@app.route('/get-users-in-role', methods=['POST'])
+def get_users_in_role():
+    data = request.json
+    auth_token = data.get('authentication_token')
+    opcode = data.get('opcode')
+    chat_name = data.get('chat_id')
+    role_name = data.get('role_name')
+    
+    if opcode != 0x66:
+        return jsonify({'opcode': opcode, 'error_opcode': 0x64})  # Unknown opcode
+    
+    session = verify_token(auth_token)
+    if not session:
+        return jsonify({'opcode': 0x66, 'error_opcode': 0x48})  # Invalid token
+    
+    uid = session['uid']
+    
+    try:
+        chat_ref = find_chat_by_name(chat_name)
+        if not chat_ref:
+            return jsonify({'opcode': 0x66, 'error_opcode': 0x22})  # Chat name invalid/does not exist
+            
+        # Make sure user is a member of the chat
+        chat_data = chat_ref.get().to_dict()
+        if uid not in chat_data.get('members', []):
+            return jsonify({'opcode': 0x66, 'error_opcode': 0x49})  # Insufficient permissions
+            
+        # Find the role
+        roles_collection = chat_ref.collection('roles')
+        role_query = roles_collection.where('name', '==', role_name).limit(1).get()
+        
+        if not role_query or len(role_query) == 0:
+            return jsonify({'opcode': 0x66, 'error_opcode': 0x62})  # Role does not exist
+            
+        role_data = role_query[0].to_dict()
+        
+        # Get usernames for all members in the role
+        member_uids = role_data.get('members', [])
+        usernames = []
+        
+        for member_uid in member_uids:
+            try:
+                user_record = auth.get_user(member_uid)
+                usernames.append(user_record.display_name or user_record.email.split('@')[0])
+            except Exception:
+                usernames.append(f"UnknownUser ({member_uid[:6]}...)")  # Fallback
+        
+        # Format response as BEL-separated string
+        bel_separator = '\x07'  # ASCII BEL character
+        usernames_str = bel_separator.join(usernames)
+        
+        logger.info(f"User {session['username']} retrieved users in role '{role_name}' from chat {chat_name}")
+        return jsonify({'opcode': 0x00, 'usernames': usernames_str})
+        
+    except Exception as e:
+        logger.error(f"Error retrieving users in role: {str(e)}")
+        return jsonify({'opcode': 0x66, 'error_opcode': 0x65})  # Unknown error
 
 # Helper functions
 def find_chat_by_name(chat_name):
@@ -1417,7 +1603,6 @@ def find_user_by_username(username):
     if not username:
         return None
         
-    # Create email from username
     email = f"{username}@example.com"
     
     try:
