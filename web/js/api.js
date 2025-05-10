@@ -1,23 +1,15 @@
 const API = {
   BASE_URL: "http://localhost:3000",
 
-  // Helper method to make authenticated requests
   async makeRequest(endpoint, opcode, authToken, data = {}) {
     try {
-      // REMOVE the endpoint normalization that broke the app
-      // Just log the endpoint as is - the original code worked this way
       console.log(
         `API Request to ${endpoint} with opcode 0x${opcode.toString(16)}`
       );
 
-      // For login and register, don't include the auth token
       const includeAuth = opcode !== 0x01 && opcode !== 0x03;
       const token = includeAuth ? authToken : null;
 
-      // We're using JSON for transmission while supporting the binary protocol format
-      // In a real TCP implementation, we would use Protocol.createPacket and transmit binary data
-
-      // Validate auth token format if we're including it
       if (token && !AuthUtils.validateTokenFormat(token)) {
         console.error("Invalid authentication token format", token);
         throw new Error("Invalid authentication token");
@@ -25,14 +17,12 @@ const API = {
 
       const requestData = { opcode, ...data };
 
-      // Add authentication token if needed
       if (includeAuth) {
         requestData.authentication_token = authToken;
       }
 
       console.log("Request data:", JSON.stringify(requestData));
 
-      // Attempt the fetch with improved error handling - use the original URL format
       const fullUrl = this.BASE_URL + endpoint;
       console.log(`Sending request to: ${fullUrl}`);
       const response = await fetch(fullUrl, {
@@ -45,7 +35,6 @@ const API = {
 
       console.log(`Received response with status: ${response.status}`);
 
-      // Check if response is actually JSON
       const contentType = response.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
         console.error("Received non-JSON response:", contentType);
@@ -66,7 +55,6 @@ const API = {
       const responseData = await response.json();
       console.log(`API Response from ${endpoint}:`, responseData);
 
-      // Special case for login to ensure we have the authentication token
       if (
         opcode === 0x03 &&
         responseData.opcode === 0x00 &&
@@ -91,7 +79,6 @@ const API = {
   },
 
   async login(username, passwordHash) {
-    // Generate 4 random integers as per protocol requirements
     const randomNumbers = [
       Math.floor(Math.random() * 0xffffffff),
       Math.floor(Math.random() * 0xffffffff),
@@ -99,7 +86,6 @@ const API = {
       Math.floor(Math.random() * 0xffffffff),
     ];
 
-    // Use explicit /login endpoint instead of empty string
     return this.makeRequest("/login", 0x03, null, {
       username,
       passwordHash,
@@ -323,7 +309,6 @@ const API = {
     });
   },
 
-  // Helper method to get user-friendly error messages
   getErrorMessage(opcode, errorOpcode) {
     const errorMessages = {
       1: {

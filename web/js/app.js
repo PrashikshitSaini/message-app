@@ -1,8 +1,6 @@
-// Global variables to hold auth info
 let authToken = null;
 let currentUsername = null;
 
-// Cache DOM elements
 const authContainer = document.getElementById("authContainer");
 const mainContainer = document.getElementById("mainContainer");
 const loginForm = document.getElementById("loginForm");
@@ -11,7 +9,6 @@ const authTabs = document.querySelectorAll(".auth-tab");
 const currentUsernameSpan = document.getElementById("currentUsername");
 const logoutBtn = document.getElementById("logoutBtn");
 
-// Modals
 const createChatModal = document.getElementById("createChatModal");
 const createChatForm = document.getElementById("createChatForm");
 const cancelCreateChatBtn = document.getElementById("cancelCreateChatBtn");
@@ -24,7 +21,6 @@ const pokeUserModal = document.getElementById("pokeUserModal");
 const pokeUserForm = document.getElementById("pokeUserForm");
 const cancelPokeBtn = document.getElementById("cancelPokeBtn");
 
-// New DOM elements and variables
 const chatList = document.getElementById("chatList");
 const currentChatName = document.getElementById("currentChatName");
 const messageInput = document.getElementById("messageInput");
@@ -44,18 +40,15 @@ const deleteChatBtn = document.getElementById("deleteChatBtn");
 const messagesContainer = document.getElementById("messagesContainer");
 const pokeBtn = document.getElementById("pokeBtn");
 
-// Modals
 const editMessageModal = document.getElementById("editMessageModal");
 const editMessageForm = document.getElementById("editMessageForm");
 const cancelEditMessageBtn = document.getElementById("cancelEditMessageBtn");
 
-// Variables
 let currentChat = null;
 let currentMessageId = null;
-let messagePollingInterval = null; // Store interval reference for cleanup
-const POLLING_INTERVAL = 3000; // Poll every 3 seconds
+let messagePollingInterval = null;
+const POLLING_INTERVAL = 3000;
 
-// Utility function to show/hide modals
 function openModal(modal) {
   modal.classList.add("active");
 }
@@ -63,7 +56,6 @@ function closeModal(modal) {
   modal.classList.remove("active");
 }
 
-// Switch between login and register tabs
 authTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
     authTabs.forEach((t) => t.classList.remove("active"));
@@ -78,7 +70,6 @@ authTabs.forEach((tab) => {
   });
 });
 
-// Login form submission with enhanced error handling
 loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const username = document.getElementById("loginUsername").value;
@@ -91,24 +82,14 @@ loginForm.addEventListener("submit", async (e) => {
 
   try {
     showToast("Logging in...", "info");
-    console.log("Login attempt for user:", username);
     const passwordHash = await sha256(password);
-    console.log("Password hashed, sending to server...");
 
     try {
       const data = await API.login(username, passwordHash);
 
-      // Add a timeout to ensure async operations complete
       setTimeout(() => {
-        // Debug: Log the entire response to see what we're getting
-        console.log("Server response:", data);
-
-        // Check if we have a data object with an authentication token
         if (data && data.authentication_token) {
-          console.log("Auth token received, validating...");
-          // Validate the token format
           if (!AuthUtils.validateTokenFormat(data.authentication_token)) {
-            console.error("Invalid token format:", data.authentication_token);
             showErrorModal(
               "Authentication Error",
               "Server returned an invalid authentication token format."
@@ -116,41 +97,23 @@ loginForm.addEventListener("submit", async (e) => {
             return;
           }
 
-          console.log("Token validated successfully");
-          // Store the valid token
           authToken = data.authentication_token;
           currentUsername = username;
           currentUsernameSpan.innerText = username;
 
-          // Fix UI update logic for better reliability
-          console.log("Updating UI for authenticated user");
           authContainer.classList.add("hidden");
           mainContainer.classList.remove("hidden");
-
-          // Explicitly set styles as well to ensure visibility
           authContainer.style.display = "none";
           mainContainer.style.display = "flex";
 
-          // Verify main container visibility
-          console.log(
-            "Main container display style:",
-            mainContainer.style.display
-          );
-          console.log("Main container classList:", mainContainer.className);
-
-          // Force a repaint to ensure UI updates
           void mainContainer.offsetHeight;
 
-          // Add a small delay before loading chats
           setTimeout(() => {
-            console.log("Loading chats...");
-            loadChats(); // Load chats after login
-            console.log("Chats loading initiated");
+            loadChats();
           }, 200);
 
           showToast(`Welcome back, ${username}!`, "success");
 
-          // Check if there's a pending invite link
           const pendingInviteLink = localStorage.getItem("pendingInviteLink");
           if (pendingInviteLink) {
             showToast("Joining chat via invite link...", "info");
@@ -158,25 +121,21 @@ loginForm.addEventListener("submit", async (e) => {
             localStorage.removeItem("pendingInviteLink");
           }
         } else if (data && data.error_opcode) {
-          console.error("Server returned error code:", data.error_opcode);
           handleApiError(data);
         } else {
-          console.error("Invalid response format:", data);
           showErrorModal(
             "Authentication Error",
             "Server returned an invalid response format."
           );
         }
-      }, 100); // Small timeout to ensure async operations complete
+      }, 100);
     } catch (apiError) {
-      console.error("API error during login:", apiError);
       showErrorModal(
         "Login Error",
         "There was an error communicating with the server. Please try again."
       );
     }
   } catch (error) {
-    console.error("Login failed", error);
     showErrorModal(
       "Connection Error",
       "Failed to connect to the server. Please check your internet connection and try again."
@@ -184,7 +143,6 @@ loginForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Register form submission
 registerForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const username = document.getElementById("registerUsername").value;
@@ -196,13 +154,11 @@ registerForm.addEventListener("submit", async (e) => {
     return;
   }
 
-  // Add stronger password validation
   if (password.length < 8) {
     showToast("Password must be at least 8 characters", "error");
     return;
   }
 
-  // Check for password complexity - require at least one number and one special character
   const hasNumber = /\d/.test(password);
   const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
 
@@ -221,19 +177,15 @@ registerForm.addEventListener("submit", async (e) => {
 
     if (handleApiError(data)) {
       showToast("Account created successfully! Please log in.", "success");
-      // Switch to login tab
       authTabs.forEach((t) => t.classList.remove("active"));
       document
         .querySelector('.auth-tab[data-tab="login"]')
         .classList.add("active");
       loginForm.classList.remove("hidden");
       registerForm.classList.add("hidden");
-
-      // Pre-fill username for convenience
       document.getElementById("loginUsername").value = username;
     }
   } catch (error) {
-    console.error("Registration error", error);
     showErrorModal(
       "Connection Error",
       "Failed to connect to the server. Please check your internet connection and try again."
@@ -241,27 +193,22 @@ registerForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Logout button
 logoutBtn.addEventListener("click", () => {
   authToken = null;
   currentUsername = null;
   mainContainer.classList.add("hidden");
   authContainer.classList.remove("hidden");
 
-  // Stop message polling when logging out
   stopMessagePolling();
 
-  // Clear any other app state
   currentChat = null;
   currentMessageId = null;
 
-  // Optionally ask to clear display name preferences
   if (confirm("Would you like to clear your custom display name settings?")) {
     clearDisplayNamePreferences();
   }
 });
 
-// Create Chat modal handling
 document
   .getElementById("createChatBtn")
   .addEventListener("click", () => openModal(createChatModal));
@@ -280,7 +227,7 @@ createChatForm.addEventListener("submit", async (e) => {
 
   try {
     showToast("Creating chat...", "info");
-    const data = await API.createChat(authToken, chatName); // Now uses opcode 0x21
+    const data = await API.createChat(authToken, chatName);
 
     if (handleApiError(data)) {
       showToast("Chat created successfully", "success");
@@ -289,7 +236,6 @@ createChatForm.addEventListener("submit", async (e) => {
       loadChats();
     }
   } catch (error) {
-    console.error("Create chat error", error);
     showErrorModal(
       "Connection Error",
       "Failed to connect to the server. Please check your internet connection and try again."
@@ -297,7 +243,6 @@ createChatForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Add User modal handling
 document
   .getElementById("addUserBtn")
   .addEventListener("click", () => openModal(addUserModal));
@@ -306,22 +251,20 @@ cancelAddUserBtn.addEventListener("click", () => closeModal(addUserModal));
 
 addUserForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const chatName = currentChatName.innerText; // assuming currentChatName shows the active chat
+  const chatName = currentChatName.innerText;
   const usernameToAdd = document.getElementById("addUsername").value;
   try {
-    const data = await API.addUserToChat(authToken, chatName, usernameToAdd); // Now uses opcode 0x22
+    const data = await API.addUserToChat(authToken, chatName, usernameToAdd);
     if (handleApiError(data)) {
       showToast(`User ${usernameToAdd} added successfully`, "success");
       closeModal(addUserModal);
       document.getElementById("addUsername").value = "";
     }
   } catch (error) {
-    console.error("Add user error", error);
     showToast("Network error while adding user", "error");
   }
 });
 
-// Poke User modal handling
 document
   .getElementById("pokeBtn")
   .addEventListener("click", () => openModal(pokeUserModal));
@@ -345,14 +288,12 @@ pokeUserForm.addEventListener("submit", async (e) => {
   }
 });
 
-// (Optional) Common modal close handler for buttons with "close-modal" class
 document.querySelectorAll(".close-modal").forEach((btn) => {
   btn.addEventListener("click", () => {
     btn.closest(".modal").classList.remove("active");
   });
 });
 
-// Simple SHA256 using SubtleCrypto (for modern browsers)
 async function sha256(message) {
   const msgBuffer = new TextEncoder().encode(message);
   const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
@@ -360,7 +301,6 @@ async function sha256(message) {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Add a new container for pinned messages
 const pinnedMessagesContainer = document.createElement("div");
 pinnedMessagesContainer.id = "pinnedMessagesContainer";
 pinnedMessagesContainer.className = "pinned-messages-container";
@@ -369,28 +309,23 @@ messagesContainer.parentNode.insertBefore(
   messagesContainer
 );
 
-// Utility: load messages for selected chat
 async function loadChatMessages(chatName, scrollToBottom = false) {
   try {
     const data = await API.getMessages(authToken, chatName);
     if (data.opcode === 0x00) {
-      // Store current scroll position before modifying content
       const scrollPos = messagesContainer.scrollTop;
       const wasAtBottom =
         messagesContainer.scrollHeight - messagesContainer.scrollTop <=
         messagesContainer.clientHeight + 10;
 
-      // Clear containers
       pinnedMessagesContainer.innerHTML = "";
       messagesContainer.innerHTML = "";
 
-      // Handle case when there are no messages
       if (!data.messages || data.messages.length === 0) {
         messagesContainer.innerHTML = `<div class="empty-state">No messages yet</div>`;
         return;
       }
 
-      // Display pinned message (if any)
       if (data.pinned_message) {
         const pinnedHeader = document.createElement("div");
         pinnedHeader.className = "pinned-header";
@@ -404,36 +339,28 @@ async function loadChatMessages(chatName, scrollToBottom = false) {
         pinnedMessagesContainer.classList.add("hidden");
       }
 
-      // Display regular messages in chronological order (oldest first)
-      // Reverse the array since the server sends messages in descending order (newest first)
       const messagesInOrder = [...data.messages].reverse();
       messagesInOrder.forEach((msg) => {
         const div = createMessageElement(msg);
         messagesContainer.appendChild(div);
       });
 
-      // Only scroll to bottom if explicitly requested or if we were already at the bottom
       if (scrollToBottom || wasAtBottom) {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
       } else {
-        // Try to maintain previous scroll position
         messagesContainer.scrollTop = scrollPos;
       }
     } else {
-      const errorCode = data.error_opcode;
-      showToast(`Error loading messages: code ${errorCode}`, "error");
+      showToast(`Error loading messages: code ${data.error_opcode}`, "error");
     }
   } catch (error) {
-    console.error("Error loading messages", error);
     showToast("Failed to load messages. Check your connection.", "error");
   }
 }
 
-// Helper function to create message elements
 function createMessageElement(msg, isPinnedDisplay = false) {
   const div = document.createElement("div");
 
-  // Check if this is a blocked message
   if (msg.is_blocked) {
     div.className = "message blocked";
     div.innerHTML = `
@@ -443,7 +370,6 @@ function createMessageElement(msg, isPinnedDisplay = false) {
     return div;
   }
 
-  // Check for system messages (type 0x02)
   if (msg.type === 0x02) {
     div.className = "message system";
     div.innerHTML = `
@@ -458,17 +384,14 @@ function createMessageElement(msg, isPinnedDisplay = false) {
       ? "message poke"
       : "message " + (msg.sender === currentUsername ? "outgoing" : "incoming");
 
-  // Add pinned class if the message is pinned
   if (msg.pinned) {
     div.classList.add("pinned");
   }
 
-  // Store message ID and other data as attributes for editing and deletion
   div.dataset.messageId = msg.id;
   div.dataset.senderUid = msg.sender_uid;
   div.dataset.senderUsername = msg.sender;
 
-  // Format roles display if the sender has any roles
   let rolesDisplay = "";
   if (msg.sender_roles && msg.sender_roles.length > 0) {
     const rolesList = msg.sender_roles
@@ -477,22 +400,18 @@ function createMessageElement(msg, isPinnedDisplay = false) {
     rolesDisplay = `<div class="sender-roles">${rolesList}</div>`;
   }
 
-  // Check for client-side display name overrides
   const storageKey = `displayNames_${currentChat}`;
   const displayNames = JSON.parse(localStorage.getItem(storageKey) || "{}");
 
-  // Determine what name to display (client-side display name or original sender name)
   const displayName = displayNames[msg.sender] || msg.sender;
   const hasCustomName = displayNames[msg.sender] ? true : false;
 
   if (msg.type === 0x01) {
-    // Poke message
     div.innerHTML = `
       <div class="message-content">${msg.content}</div>
       <div class="message-timestamp">${msg.timestamp || ""}</div>
     `;
   } else {
-    // Normal message - with client-side display name support
     div.innerHTML = `
       <div class="message-sender">
         ${displayName}
@@ -519,15 +438,12 @@ function createMessageElement(msg, isPinnedDisplay = false) {
       </div>`;
   }
 
-  // Only show edit/delete options for your own messages or if you're in pinned display area
   if (!isPinnedDisplay) {
     const messageActions = document.createElement("div");
     messageActions.className = "message-actions-menu";
 
-    // Determine which buttons to show based on message ownership
     let actionButtons = "";
 
-    // If it's your message, you can edit and delete it
     if (msg.sender === currentUsername) {
       actionButtons += `
         <button class="edit-btn" title="Edit Message">
@@ -539,7 +455,6 @@ function createMessageElement(msg, isPinnedDisplay = false) {
       `;
     }
 
-    // Everyone can pin/unpin messages
     const pinButtonText = msg.pinned ? "Unpin" : "Pin";
     actionButtons += `
       <button class="pin-btn" title="${pinButtonText} Message">
@@ -552,7 +467,6 @@ function createMessageElement(msg, isPinnedDisplay = false) {
     messageActions.innerHTML = actionButtons;
     div.appendChild(messageActions);
 
-    // Add event listeners to buttons
     const editBtn = messageActions.querySelector(".edit-btn");
     if (editBtn) {
       editBtn.addEventListener("click", (e) => {
@@ -578,11 +492,10 @@ function createMessageElement(msg, isPinnedDisplay = false) {
       pinBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         const isPinned = msg.pinned;
-        pinMessage(msg.id, isPinned); // If already pinned, unpin it
+        pinMessage(msg.id, isPinned);
       });
     }
   } else {
-    // Add an unpin button to the pinned message
     const unpinBtn = document.createElement("button");
     unpinBtn.className = "unpin-btn";
     unpinBtn.innerHTML = '<span class="material-icons">push_pin_off</span>';
@@ -590,36 +503,29 @@ function createMessageElement(msg, isPinnedDisplay = false) {
     div.appendChild(unpinBtn);
 
     unpinBtn.addEventListener("click", () => {
-      pinMessage(msg.id, true); // Pass true to indicate unpinning
+      pinMessage(msg.id, true);
     });
   }
 
   return div;
 }
 
-// Update the pinMessage function to handle both pinning and unpinning
 async function pinMessage(messageId, shouldUnpin = false) {
   if (!currentChat) return;
   try {
-    // Determine if we need to pin or unpin
     let data;
     if (shouldUnpin) {
-      data = await API.unpinMessage(authToken, currentChat, messageId); // Now uses opcode 0x45
+      data = await API.unpinMessage(authToken, currentChat, messageId);
     } else {
-      data = await API.pinMessage(authToken, currentChat, messageId); // Now uses opcode 0x44
+      data = await API.pinMessage(authToken, currentChat, messageId);
     }
 
     if (handleApiError(data)) {
-      // Show success toast
       const message = shouldUnpin ? "Message unpinned" : "Message pinned";
       showToast(message, "success");
-      loadChatMessages(currentChat); // Reload to update pinned status
+      loadChatMessages(currentChat);
     }
   } catch (error) {
-    console.error(
-      `Error ${shouldUnpin ? "unpinning" : "pinning"} message`,
-      error
-    );
     showToast(
       `Failed to ${
         shouldUnpin ? "unpin" : "pin"
@@ -629,52 +535,42 @@ async function pinMessage(messageId, shouldUnpin = false) {
   }
 }
 
-// Helper function to delete a message
 async function deleteMessage(messageId) {
   if (!currentChat) return;
   try {
-    const data = await API.deleteMessage(authToken, currentChat, messageId); // Now uses opcode 0x43
+    const data = await API.deleteMessage(authToken, currentChat, messageId);
     if (data.opcode === 0x00) {
-      // Show success toast instead of alert
       showToast("Message deleted successfully", "success");
-      loadChatMessages(currentChat); // Reload to refresh the message list
+      loadChatMessages(currentChat);
     } else {
       handleApiError(data, "Error deleting message");
     }
   } catch (error) {
-    console.error("Error deleting message", error);
     showToast("Network error while deleting message", "error");
   }
 }
 
-// Add context menu for messages with display name change option
 messagesContainer.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   const messageDiv = e.target.closest(".message");
   if (!messageDiv) return;
 
-  // Get information about the message
   const messageId = messageDiv.dataset.messageId;
   const senderUid = messageDiv.dataset.senderUid;
   const senderUsername = messageDiv.dataset.senderUsername;
 
-  // Don't show context menu for system messages or if we don't have the required data
   if (!messageId || !senderUid || !senderUsername) {
-    console.warn("Message data not found");
     return;
   }
 
-  // Determine if this is the user's own message
   const isSender = messageDiv.classList.contains("outgoing");
 
-  // Show custom context menu with options
   const contextMenu = document.createElement("div");
   contextMenu.className = "context-menu";
   contextMenu.style.position = "absolute";
   contextMenu.style.left = `${e.pageX}px`;
   contextMenu.style.top = `${e.pageY}px`;
 
-  // Don't allow changing display name of your own messages
   let menuItems = `
     <div class="context-menu-item" data-action="pin">
       <span class="material-icons">push_pin</span> 
@@ -686,7 +582,6 @@ messagesContainer.addEventListener("contextmenu", (e) => {
     </div>
   `;
 
-  // Show edit/delete for user's own messages
   if (isSender) {
     menuItems += `
       <div class="context-menu-item" data-action="edit">
@@ -697,7 +592,6 @@ messagesContainer.addEventListener("contextmenu", (e) => {
       </div>
     `;
   } else {
-    // Only add display name option for other people's messages
     menuItems += `
       <div class="context-menu-item" data-action="changeDisplayName">
         <span class="material-icons">badge</span> Change Display Name
@@ -711,7 +605,6 @@ messagesContainer.addEventListener("contextmenu", (e) => {
   contextMenu.innerHTML = menuItems;
   document.body.appendChild(contextMenu);
 
-  // Handle context menu item clicks
   contextMenu.addEventListener("click", async (e) => {
     const actionElement = e.target.closest(".context-menu-item");
     if (!actionElement) return;
@@ -720,7 +613,7 @@ messagesContainer.addEventListener("contextmenu", (e) => {
 
     if (action === "pin") {
       const isPinned = messageDiv.classList.contains("pinned");
-      pinMessage(messageId, isPinned); // If already pinned, unpin it
+      pinMessage(messageId, isPinned);
     } else if (action === "delete") {
       if (confirm("Are you sure you want to delete this message?")) {
         deleteMessage(messageId);
@@ -752,11 +645,9 @@ messagesContainer.addEventListener("contextmenu", (e) => {
       }
     }
 
-    // Remove context menu
     document.body.removeChild(contextMenu);
   });
 
-  // Close context menu when clicking elsewhere
   document.addEventListener("click", function closeContextMenu() {
     if (document.body.contains(contextMenu)) {
       document.body.removeChild(contextMenu);
@@ -765,7 +656,6 @@ messagesContainer.addEventListener("contextmenu", (e) => {
   });
 });
 
-// Function to change a user's display name (client-side only)
 async function changeUserDisplayName(username, displayName) {
   if (!currentChat) {
     showToast("Select a chat first", "error");
@@ -773,11 +663,9 @@ async function changeUserDisplayName(username, displayName) {
   }
 
   try {
-    // Save display name preference in localStorage
     const storageKey = `displayNames_${currentChat}`;
     let displayNames = JSON.parse(localStorage.getItem(storageKey) || "{}");
 
-    // Store the display name for this username in this chat
     displayNames[username] = displayName;
     localStorage.setItem(storageKey, JSON.stringify(displayNames));
 
@@ -786,25 +674,20 @@ async function changeUserDisplayName(username, displayName) {
       "success"
     );
 
-    // Reload messages to show updated display names
     loadChatMessages(currentChat);
   } catch (error) {
-    console.error("Error changing display name", error);
     showToast("Error while changing display name", "error");
   }
 }
 
-// Add a function to clear display name preferences
 function clearDisplayNamePreferences() {
   if (
     confirm("This will reset all custom display names you've set. Continue?")
   ) {
-    // Get all keys that start with "displayNames_"
     Object.keys(localStorage)
       .filter((key) => key.startsWith("displayNames_"))
       .forEach((key) => localStorage.removeItem(key));
 
-    // Reload current chat if any
     if (currentChat) {
       loadChatMessages(currentChat);
     }
@@ -813,19 +696,16 @@ function clearDisplayNamePreferences() {
   }
 }
 
-// Function to load and display custom display names
 function loadDisplayNamePreferences() {
   const displayNamesList = document.getElementById("displayNamesList");
   displayNamesList.innerHTML = "";
 
-  // Check if we have a current chat
   if (!currentChat) {
     displayNamesList.innerHTML =
       '<div class="empty-state">Select a chat to view custom names</div>';
     return;
   }
 
-  // Get display names for the current chat
   const storageKey = `displayNames_${currentChat}`;
   const displayNames = JSON.parse(localStorage.getItem(storageKey) || "{}");
 
@@ -835,7 +715,6 @@ function loadDisplayNamePreferences() {
     return;
   }
 
-  // Create a list of display names
   Object.entries(displayNames).forEach(([username, displayName]) => {
     const nameItem = document.createElement("div");
     nameItem.className = "display-name-item";
@@ -856,7 +735,6 @@ function loadDisplayNamePreferences() {
     displayNamesList.appendChild(nameItem);
   });
 
-  // Add event listeners for edit and remove buttons
   displayNamesList.querySelectorAll(".edit-name-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const username = btn.dataset.username;
@@ -865,7 +743,7 @@ function loadDisplayNamePreferences() {
 
       if (newName && newName.trim()) {
         changeUserDisplayName(username, newName.trim());
-        loadDisplayNamePreferences(); // Reload the list
+        loadDisplayNamePreferences();
       }
     });
   });
@@ -875,11 +753,9 @@ function loadDisplayNamePreferences() {
       const username = btn.dataset.username;
 
       if (confirm(`Remove custom display name for ${username}?`)) {
-        // Remove this display name
         delete displayNames[username];
         localStorage.setItem(storageKey, JSON.stringify(displayNames));
 
-        // Reload messages and display name list
         loadChatMessages(currentChat);
         loadDisplayNamePreferences();
       }
@@ -887,80 +763,58 @@ function loadDisplayNamePreferences() {
   });
 }
 
-// Utility: load chats
 async function loadChats() {
-  console.log(
-    "loadChats function called, authToken:",
-    authToken ? "exists" : "missing"
-  );
   chatList.innerHTML = '<div class="loading">Loading chats...</div>';
 
   try {
-    console.log("Fetching chats from API...");
     const data = await API.getChats(authToken);
-    console.log("Chats API response:", data);
 
     if (data.opcode === 0x00) {
       chatList.innerHTML = "";
 
       if (!data.chats || data.chats.length === 0) {
-        console.log("No chats found, showing empty state");
         chatList.innerHTML = `<div class="empty-state">No chats yet. Create one!</div>`;
         return;
       }
 
-      console.log(`${data.chats.length} chats found, rendering...`);
       data.chats.forEach((chat) => {
         const chatItem = document.createElement("div");
         chatItem.className = "chat-item";
         chatItem.innerText = chat.name;
         chatList.appendChild(chatItem);
-        console.log(`Added chat: ${chat.name}`);
       });
     } else {
-      console.error("Failed to load chats:", data.error_opcode);
       chatList.innerHTML = `<div class="empty-state">Use the + button to create a chat</div>`;
     }
   } catch (error) {
-    console.error("Error loading chats", error);
     chatList.innerHTML = `<div class="empty-state">Failed to load chats. Check your connection.</div>`;
   }
 }
 
-// Start polling for new messages
 function startMessagePolling(chatName) {
-  // Clear any existing polling interval first
   stopMessagePolling();
-  // Set up new polling interval
   messagePollingInterval = setInterval(() => {
     if (chatName) {
-      // When polling for new messages, don't force scroll to bottom
       loadChatMessages(chatName, false);
     }
   }, POLLING_INTERVAL);
-  console.log(`Started polling for messages in chat: ${chatName}`);
 }
 
-// Stop polling for messages
 function stopMessagePolling() {
   if (messagePollingInterval) {
     clearInterval(messagePollingInterval);
     messagePollingInterval = null;
-    console.log("Stopped message polling");
   }
 }
 
-// Improve the chat selection event listener to properly load messages
 chatList.addEventListener("click", (e) => {
   const chatItem = e.target.closest(".chat-item");
   if (!chatItem) return;
 
-  // Remove active class from all chats
   document.querySelectorAll(".chat-item").forEach((item) => {
     item.classList.remove("active");
   });
 
-  // Add active class to selected chat
   chatItem.classList.add("active");
 
   const selectedChat = chatItem.innerText.trim();
@@ -970,15 +824,12 @@ chatList.addEventListener("click", (e) => {
   pokeBtn.disabled = false;
   currentChat = selectedChat;
 
-  // Load messages and start polling - Always scroll to bottom when selecting a new chat
-  loadChatMessages(selectedChat, true); // true means scroll to bottom
+  loadChatMessages(selectedChat, true);
   startMessagePolling(selectedChat);
 
-  // After setting currentChat
   updateChatSettingsForRole();
 });
 
-// Send message button listener
 sendMessageBtn.addEventListener("click", async () => {
   const chatName = currentChatName.innerText;
   const message = messageInput.value.trim();
@@ -988,13 +839,12 @@ sendMessageBtn.addEventListener("click", async () => {
   }
 
   try {
-    const data = await API.sendMessage(authToken, chatName, message); // Now uses opcode 0x41
+    const data = await API.sendMessage(authToken, chatName, message);
     if (handleApiError(data)) {
       messageInput.value = "";
       loadChatMessages(chatName, true);
     }
   } catch (error) {
-    console.error("Send message error", error);
     showErrorModal(
       "Connection Error",
       "Failed to send message. Please check your connection and try again."
@@ -1002,7 +852,6 @@ sendMessageBtn.addEventListener("click", async () => {
   }
 });
 
-// Add Enter key support to send messages
 messageInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
@@ -1010,18 +859,16 @@ messageInput.addEventListener("keydown", (e) => {
   }
 });
 
-// Chat Settings: Remove User, Leave Chat, Delete Chat actions
 removeUserBtn.addEventListener("click", async () => {
   const chatName = currentChatName.innerText;
   const username = prompt("Enter username to remove:");
   if (!username) return;
   try {
-    const data = await API.removeUserFromChat(authToken, chatName, username); // Now uses opcode 0x23
+    const data = await API.removeUserFromChat(authToken, chatName, username);
     if (handleApiError(data)) {
       showToast(`User ${username} removed from chat`, "success");
     }
   } catch (error) {
-    console.error("Remove user error", error);
     showToast("Network error while removing user", "error");
   }
 });
@@ -1030,7 +877,7 @@ leaveChatBtn.addEventListener("click", async () => {
   const chatName = currentChatName.innerText;
   if (confirm("Are you sure you want to leave this chat?")) {
     try {
-      const data = await API.leaveChat(authToken, chatName); // Now uses opcode 0x32
+      const data = await API.leaveChat(authToken, chatName);
       if (handleApiError(data)) {
         showToast("You have left the chat", "success");
         currentChatName.innerText = "Select a chat";
@@ -1044,7 +891,6 @@ leaveChatBtn.addEventListener("click", async () => {
         closeModal(chatSettingsModal);
       }
     } catch (error) {
-      console.error("Leave chat error", error);
       showToast("Network error while leaving chat", "error");
     }
   }
@@ -1054,7 +900,7 @@ deleteChatBtn.addEventListener("click", async () => {
   const chatName = currentChatName.innerText;
   if (confirm("Delete chat? This cannot be undone.")) {
     try {
-      const data = await API.deleteChat(authToken, chatName); // Now uses opcode 0x24
+      const data = await API.deleteChat(authToken, chatName);
       if (handleApiError(data)) {
         showToast("Chat deleted successfully", "success");
         currentChatName.innerText = "Select a chat";
@@ -1068,25 +914,20 @@ deleteChatBtn.addEventListener("click", async () => {
         closeModal(chatSettingsModal);
       }
     } catch (error) {
-      console.error("Delete chat error", error);
       showToast("Network error while deleting chat", "error");
     }
   }
 });
 
-// Open Role Management Modal on button click
 manageRolesBtn.addEventListener("click", () => {
-  // Only proceed if a chat is selected
   if (!currentChat) {
     alert("Please select a chat first");
     return;
   }
-  // Populate role dropdowns before opening the modal
   populateRoleDropdowns();
   openModal(roleManagementModal);
 });
 
-// Function to fetch roles and populate the role dropdowns
 async function populateRoleDropdowns() {
   if (!currentChat) return;
   try {
@@ -1095,33 +936,26 @@ async function populateRoleDropdowns() {
       const roleToAssignSelect = document.getElementById("roleToAssign");
       const roleToRemoveSelect = document.getElementById("roleToRemove");
 
-      // Clear existing options
       roleToAssignSelect.innerHTML = "";
       roleToRemoveSelect.innerHTML = "";
 
-      // Check if roles array exists and has elements
       if (data.roles && Array.isArray(data.roles) && data.roles.length > 0) {
-        // Add roles to dropdowns
         data.roles.forEach((role) => {
           roleToAssignSelect.add(new Option(role, role));
           roleToRemoveSelect.add(new Option(role, role));
         });
       } else {
-        // Add a placeholder option if no roles exist
         roleToAssignSelect.add(new Option("No roles available", ""));
         roleToRemoveSelect.add(new Option("No roles available", ""));
       }
     } else {
-      console.error("Failed to fetch roles:", data.error_opcode);
       alert("Failed to load roles. Please try again.");
     }
   } catch (error) {
-    console.error("Error fetching roles", error);
     alert("Error connecting to server. Please check your connection.");
   }
 }
 
-// Add a debugging function to show chat creator status
 async function checkChatCreatorStatus() {
   if (!currentChat) return;
   try {
@@ -1131,23 +965,15 @@ async function checkChatCreatorStatus() {
         (chat) => chat.name === currentChat
       );
       if (currentChatData) {
-        console.log(`Current chat: ${currentChat}`);
-        console.log(
-          `You are ${
-            currentChatData.is_owner ? "" : "not "
-          }the creator of this chat`
-        );
         return currentChatData.is_owner;
       }
     }
     return false;
   } catch (error) {
-    console.error("Error checking chat creator status:", error);
     return false;
   }
 }
 
-// Role Management Tab Switching within the modal - fix existing implementation
 roleManagementModal.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     roleManagementModal
@@ -1166,7 +992,6 @@ roleManagementModal.querySelectorAll(".tab").forEach((tab) => {
   });
 });
 
-// Create Role Form
 createRoleForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const chatName = currentChatName.innerText;
@@ -1177,7 +1002,6 @@ createRoleForm.addEventListener("submit", async (e) => {
     if (data.opcode === 0x00) {
       alert(`Role ${roleName} created successfully`);
       document.getElementById("newRoleName").value = "";
-      // Update the role dropdowns with the new role
       populateRoleDropdowns();
     } else {
       if (data.error_opcode === 0x49) {
@@ -1189,12 +1013,10 @@ createRoleForm.addEventListener("submit", async (e) => {
       }
     }
   } catch (error) {
-    console.error("Create role error", error);
     alert("Failed to create role. Check your connection.");
   }
 });
 
-// Assign Role Form
 assignRoleForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const chatName = currentChatName.innerText;
@@ -1223,12 +1045,10 @@ assignRoleForm.addEventListener("submit", async (e) => {
       }
     }
   } catch (error) {
-    console.error("Assign role error", error);
     alert("Failed to assign role. Check your connection.");
   }
 });
 
-// Remove Role Form
 removeRoleForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const chatName = currentChatName.innerText;
@@ -1259,14 +1079,11 @@ removeRoleForm.addEventListener("submit", async (e) => {
       }
     }
   } catch (error) {
-    console.error("Remove role error", error);
     alert("Failed to remove role. Check your connection.");
   }
 });
 
-// Open Chat Settings Modal on button click
 chatSettingsBtn.addEventListener("click", async () => {
-  console.log("Chat settings button clicked"); // for debugging
   if (!currentChat) {
     showToast("Please select a chat first", "error");
     return;
@@ -1275,34 +1092,25 @@ chatSettingsBtn.addEventListener("click", async () => {
   openModal(chatSettingsModal);
 });
 
-// Ensure updateChatSettingsForRole function works properly
 async function updateChatSettingsForRole() {
-  console.log("Updating chat settings for role"); // Add this line for debugging
   const isCreator = await checkChatCreatorStatus();
-  console.log("Is creator:", isCreator); // Add this line for debugging
-  // Show/hide generate invite link button based on creator status
   generateInviteLinkBtn.style.display = isCreator ? "block" : "none";
   deleteChatBtn.style.display = isCreator ? "block" : "none";
   removeUserBtn.style.display = isCreator ? "block" : "none";
-  // Always show leave chat button for non-creators
   leaveChatBtn.style.display = isCreator ? "none" : "block";
 }
 
-// Edit Message Modal
 document
   .getElementById("messagesContainer")
   .addEventListener("dblclick", (e) => {
     const messageDiv = e.target.closest(".message");
     if (!messageDiv) return;
 
-    // Extract message ID
     currentMessageId = messageDiv.dataset.messageId;
     if (!currentMessageId) {
-      console.warn("Message ID not found");
       return;
     }
 
-    // Populate the edit message input with the current message content
     const messageContent =
       messageDiv.querySelector(".message-content").innerText;
     document.getElementById("editMessageInput").value = messageContent;
@@ -1332,28 +1140,25 @@ editMessageForm.addEventListener("submit", async (e) => {
       currentChat,
       currentMessageId,
       updatedMessage
-    ); // Now uses opcode 0x42
+    );
     if (data.opcode === 0x00) {
       showToast("Message edited successfully", "success");
       closeModal(editMessageModal);
-      loadChatMessages(currentChat); // Reload messages to show the updated message
+      loadChatMessages(currentChat);
     } else {
       handleApiError(data, "Error editing message");
     }
   } catch (error) {
-    console.error("Edit message error", error);
     showToast("Network error while editing message", "error");
   }
 });
 
-// Delete Message
 messagesContainer.addEventListener("contextmenu", async (e) => {
   e.preventDefault();
   const messageDiv = e.target.closest(".message");
   if (!messageDiv) return;
   const messageId = messageDiv.dataset.messageId;
   if (!messageId) {
-    console.warn("Message ID not found");
     return;
   }
   if (confirm("Are you sure you want to delete this message?")) {
@@ -1361,7 +1166,7 @@ messagesContainer.addEventListener("contextmenu", async (e) => {
       const data = await API.deleteMessage(authToken, currentChat, messageId);
       if (data.opcode === 0x00) {
         alert("Message deleted successfully");
-        loadChatMessages(currentChat); // Reload messages to reflect deletion
+        loadChatMessages(currentChat);
       } else {
         alert("Error deleting message");
       }
@@ -1371,24 +1176,19 @@ messagesContainer.addEventListener("contextmenu", async (e) => {
   }
 });
 
-// Add periodic chat list refresh
 function startChatListPolling() {
   setInterval(() => {
     if (authToken) {
       loadChats();
     }
-  }, 10000); // Check for new chats every 10 seconds
+  }, 10000);
 }
 
-// Start chat list polling after page load
 document.addEventListener("DOMContentLoaded", () => {
   startChatListPolling();
-  // Check if there's an invite link in URL
   const joinParam = getUrlParameter("join");
   if (joinParam) {
-    // Store the invite link to use after login
     localStorage.setItem("pendingInviteLink", joinParam);
-    // Show a message to user
     const inviteBanner = document.createElement("div");
     inviteBanner.className = "invite-banner";
     inviteBanner.innerHTML = `
@@ -1396,11 +1196,9 @@ document.addEventListener("DOMContentLoaded", () => {
       <span>You've been invited to join a chat. Please log in to continue.</span>
     `;
     document.querySelector(".auth-container").prepend(inviteBanner);
-    // Clean URL to remove the invite parameter
     window.history.replaceState({}, document.title, window.location.pathname);
   }
 
-  // Add a button to the sidebar to manage blocked users
   const userInfo = document.querySelector(".user-info");
   const manageBlockedBtn = document.createElement("button");
   manageBlockedBtn.id = "manageBlockedBtn";
@@ -1414,7 +1212,6 @@ document.addEventListener("DOMContentLoaded", () => {
     openModal(blockedUsersModal);
   });
 
-  // Add a button to the sidebar to manage display names
   const manageDisplayNamesBtn = document.createElement("button");
   manageDisplayNamesBtn.id = "manageDisplayNamesBtn";
   manageDisplayNamesBtn.className = "btn icon-btn";
@@ -1427,18 +1224,15 @@ document.addEventListener("DOMContentLoaded", () => {
     openModal(document.getElementById("displayNamesModal"));
   });
 
-  // Add event listener for clearing display names
   document
     .getElementById("clearDisplayNamesBtn")
     .addEventListener("click", clearDisplayNamePreferences);
 });
 
-// Helper function to show toast notifications
 function showToast(message, type = "info") {
   const toast = document.getElementById("toast");
   toast.innerHTML = "";
 
-  // Add appropriate icon
   let iconName = "info";
   if (type === "success") iconName = "check_circle";
   else if (type === "error") iconName = "error";
@@ -1449,27 +1243,22 @@ function showToast(message, type = "info") {
     <span class="toast-message">${message}</span>
   `;
   toast.innerHTML = content;
-  toast.className = "toast"; // Reset classes
+  toast.className = "toast";
 
-  // Add appropriate type class
   toast.classList.add(type);
   toast.classList.add("visible");
 
-  // Auto-hide after 3 seconds
   setTimeout(() => {
     toast.classList.remove("visible");
   }, 3000);
 
-  // Allow clicking to dismiss
   toast.addEventListener("click", () => {
     toast.classList.remove("visible");
   });
 }
 
-// Enhanced error handling function
 function handleApiError(data, defaultMessage = "An error occurred") {
   if (!data) {
-    console.error("No data returned from API");
     showErrorModal(
       "Network Error",
       "Failed to connect to the server. Please check your internet connection."
@@ -1478,43 +1267,29 @@ function handleApiError(data, defaultMessage = "An error occurred") {
   }
 
   const errorOpcode = data.error_opcode;
-  const opcode = data.opcode; // Opcode of the request
-
-  console.log(`Handling error: opcode=${opcode}, error_opcode=${errorOpcode}`);
+  const opcode = data.opcode;
 
   if (errorOpcode) {
-    // Get user-friendly error message from API
     const errorMessage = API.getErrorMessage(opcode, errorOpcode);
-    console.error(
-      `API Error: ${errorMessage} (opcode: 0x${opcode.toString(
-        16
-      )}, error: 0x${errorOpcode.toString(16)})`
-    );
 
-    // For authentication errors (login opcode 0x03, account creation 0x01)
-    // or general auth token error 0x48
     if (
       (opcode === 0x03 &&
         (errorOpcode === 0x03 ||
           errorOpcode === 0x04 ||
-          errorOpcode === 0x05)) || // Login errors
-      (opcode === 0x01 && (errorOpcode === 0x01 || errorOpcode === 0x02)) || // Account creation errors
-      errorOpcode === 0x48 // Invalid auth token
+          errorOpcode === 0x05)) ||
+      (opcode === 0x01 && (errorOpcode === 0x01 || errorOpcode === 0x02)) ||
+      errorOpcode === 0x48
     ) {
-      // Special case for invalid credentials during login (opcode 0x03, error 0x04)
       if (opcode === 0x03 && errorOpcode === 0x04) {
         showToast("Invalid username or password", "error");
-        // Focus the password field for retry
         document.getElementById("loginPassword").focus();
       } else if (errorOpcode === 0x48) {
-        // Session expired
         showToast("Your session has expired. Please login again.", "error");
-        logoutBtn.click(); // Force logout
+        logoutBtn.click();
       } else {
         showToast(errorMessage || defaultMessage, "error");
       }
     } else {
-      // For other errors, show toast
       showToast(errorMessage || defaultMessage, "error");
     }
     return false;
@@ -1523,16 +1298,13 @@ function handleApiError(data, defaultMessage = "An error occurred") {
   return true;
 }
 
-// Show error in modal for more serious errors
 function showErrorModal(title, message) {
   document.getElementById("errorModalTitle").textContent = title;
   document.getElementById("errorModalMessage").textContent = message;
   openModal(document.getElementById("errorModal"));
 }
 
-// Force logout on authentication errors
 function logoutUser() {
-  // Small delay to show the error before logging out
   setTimeout(() => {
     authToken = null;
     currentUsername = null;
@@ -1544,7 +1316,6 @@ function logoutUser() {
   }, 2000);
 }
 
-// Function to parse URL parameters
 function getUrlParameter(name) {
   name = name.replace(/[[]/, "\\[").replace(/[\]]/, "\\]");
   const regex = new RegExp("[\\?&]" + name + "=([^&#]*)");
@@ -1554,19 +1325,17 @@ function getUrlParameter(name) {
     : decodeURIComponent(results[1].replace(/\+/g, " "));
 }
 
-// Function to join a chat via invite link
 async function joinChatViaInviteLink(inviteLink) {
   try {
     const data = await API.joinChatByLink(authToken, inviteLink);
     if (data.opcode === 0x00) {
       showToast(`Successfully joined chat: ${data.chat_name}`, "success");
-      loadChats(); // Refresh the chat list
-      // Select the newly joined chat once it's loaded
+      loadChats();
       setTimeout(() => {
         const chatItems = document.querySelectorAll(".chat-item");
         chatItems.forEach((item) => {
           if (item.innerText.trim() === data.chat_name) {
-            item.click(); // Programmatically click on the chat
+            item.click();
           }
         });
       }, 500);
@@ -1583,59 +1352,49 @@ async function joinChatViaInviteLink(inviteLink) {
       }
     }
   } catch (error) {
-    console.error("Error joining chat via invite", error);
     showToast("Network error while joining chat", "error");
   }
 }
 
-// Function to block a user
 async function blockUser(username) {
   try {
-    const data = await API.blockUser(authToken, username); // Now uses opcode 0x11
+    const data = await API.blockUser(authToken, username);
     if (data.opcode === 0x00) {
       showToast(`User ${username} has been blocked`, "success");
-      // Reload messages to apply the block
       if (currentChat) {
         loadChatMessages(currentChat);
       }
     } else {
-      // Use standard error handling
       handleApiError(data, `Error blocking user ${username}`);
     }
   } catch (error) {
-    console.error("Error blocking user", error);
     showToast("Network error while blocking user", "error");
   }
 }
 
-// Add this after the blockUser function
 async function unblockUser(username) {
   try {
-    const data = await API.unblockUser(authToken, username); // Now uses opcode 0x12
+    const data = await API.unblockUser(authToken, username);
     if (data.opcode === 0x00) {
       showToast(`User ${username} has been unblocked`, "success");
-      // Reload messages to apply the unblock
       if (currentChat) {
         loadChatMessages(currentChat);
       }
     } else {
-      // Use standard error handling
       handleApiError(data, `Error unblocking user ${username}`);
     }
   } catch (error) {
-    console.error("Error unblocking user", error);
     showToast("Network error while unblocking user", "error");
   }
 }
 
-// Add this function to load blocked users
 async function loadBlockedUsers() {
   try {
     const blockedUsersList = document.getElementById("blockedUsersList");
     blockedUsersList.innerHTML =
       '<div class="loading">Loading blocked users...</div>';
 
-    const data = await API.getBlockedUsers(authToken); // Now uses opcode 0x13
+    const data = await API.getBlockedUsers(authToken);
     if (data.opcode === 0x00) {
       blockedUsersList.innerHTML = "";
       if (!data.blocked_users || data.blocked_users.length === 0) {
@@ -1656,12 +1415,10 @@ async function loadBlockedUsers() {
         blockedUsersList.appendChild(userItem);
       });
 
-      // Add event listeners to unblock buttons
       document.querySelectorAll(".unblock-btn").forEach((btn) => {
         btn.addEventListener("click", async () => {
           const username = btn.dataset.username;
           await unblockUser(username);
-          // Reload the blocked users list
           loadBlockedUsers();
         });
       });
@@ -1670,13 +1427,11 @@ async function loadBlockedUsers() {
         '<div class="error-state">Failed to load blocked users</div>';
     }
   } catch (error) {
-    console.error("Error loading blocked users", error);
     document.getElementById("blockedUsersList").innerHTML =
       '<div class="error-state">Error connecting to server</div>';
   }
 }
 
-// Get references to the invite link elements
 const generateInviteLinkBtn = document.getElementById("generateInviteLinkBtn");
 const inviteLinkModal = document.getElementById("inviteLinkModal");
 const inviteLinkInput = document.getElementById("inviteLinkInput");
@@ -1691,28 +1446,20 @@ generateInviteLinkBtn.addEventListener("click", async () => {
   try {
     const data = await API.generateInviteLink(authToken, currentChat);
     if (handleApiError(data)) {
-      // Format the invite link as a full URL that can be shared
       const baseUrl = window.location.origin + window.location.pathname;
       const fullInviteLink = `${baseUrl}?join=${data.invite_link}`;
       inviteLinkInput.value = fullInviteLink;
-      // Show the modal with the link
       openModal(inviteLinkModal);
-      // Select the text for easy copying
       inviteLinkInput.select();
       showToast("Invite link generated successfully", "success");
     }
   } catch (error) {
-    console.error("Error generating invite link:", error);
     showToast("Network error while generating invite link", "error");
   }
 });
 
-// Add event listener for copying the invite link
 copyInviteLinkBtn.addEventListener("click", () => {
-  // Alternative for modern browsers:
   navigator.clipboard.writeText(inviteLinkInput.value);
-  // Fallback for older browsers:
-  // document.execCommand("copy");
   inviteLinkInput.select();
   showToast("Invite link copied to clipboard", "success");
 });

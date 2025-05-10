@@ -8,23 +8,30 @@ Follow these instructions to get the application running on your local machine.
 
 ### Prerequisites
 
-- Node.js and npm installed
+- Python 3.8+ and pip installed
 - Firebase account (for authentication and database)
+- Code editor with Live Server capability (such as VS Code)
 
-### Installation
+### Installation (**Recommended**)
 
 #### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/message-app.git
+git clone https://github.com/PrashikshitSaini/message-app
 cd message-app
 ```
 
-#### 2. Install dependencies
+#### 2. Install Python dependencies
 
 ```bash
-npm install
+pip install -r requirements.txt
 ```
+
+The requirements file includes:
+
+- Flask
+- Flask-CORS
+- firebase-admin
 
 #### 3. Configure Firebase
 
@@ -53,23 +60,38 @@ Your `creds.json` file should look something like this:
 }
 ```
 
-#### 4. Run the application
+#### 4. Running the Application
 
-# In the root directory, start the server
+The application consists of two parts: a Python backend server and a JavaScript/HTML frontend. Both need to be running simultaneously.
 
+##### Step 1: Start the Python server
+
+Navigate to the project root directory and run:
+
+```bash
 python server.py
+```
 
-- Then open the web client
+This will start the server at `http://localhost:3000`. Keep this terminal window open.
 
-- Option 1: Use a Live Server extension in your code editor
-   Navigate to the /web folder and start Live Server
+##### Step 2: Launch the frontend using Live Server
 
-- Option 2: Open the file directly in a browser
- Open /web/index.html in your browser
+1. **Using VS Code:**
 
-The server should be running at `http://localhost:3000` by default.
+   - Install the "Live Server" extension if you haven't already
+   - Open the project in VS Code
+   - Navigate to the `/web` folder
+   - Right-click on `index.html` and select "Open with Live Server"
+   - This will typically open a browser window at `http://127.0.0.1:5500/web/index.html`
 
-Open your browser and navigate to `http://localhost:3000` to access the messaging app.
+2. **Using other editors:**
+
+   - If using another editor with a Live Server feature, follow similar steps to serve the `/web` directory
+
+3. **Troubleshooting CORS issues:**
+   - Ensure the frontend is served from either `http://127.0.0.1:5500` or `http://localhost:5500`
+   - These origins are pre-configured in the server's CORS settings
+   - If using a different port, you may need to modify the CORS configuration in `server.py`
 
 ## Features
 
@@ -88,25 +110,7 @@ Open your browser and navigate to `http://localhost:3000` to access the messagin
 2. Create a new chat or join an existing one
 3. Send messages and interact with other users
 
-## Known Issues & Contributions
 
-Since there's just the four of us working on this project, we're keeping track of bugs and enhancements in the Issues tab. If you spot something weird or have a cool idea:
-
-1. Check if someone's already reported it in the Issues tab
-2. If not, create a new issue - be descriptive so we all understand what's happening
-3. Want to fix it? Great! Just let the team know you're working on it
-
-Remember, this is our shared playground - if you're making changes:
-
-- Create your own branch (don't mess with main!)
-- Test your changes before sharing with the team
-- Let everyone know what you fixed and why
-
-### When You Fix Something
-
-Drop a message in the group chat and reference the issue number in your commit (e.g., "Fixed that annoying popup bug, closes #42").
-
-If you need help, just ping one of us.
 
 ## Development
 
@@ -116,12 +120,9 @@ Always fork this repository before making any changes. Never commit directly to 
 
 ```bash
 # Create a fork on GitHub first, then clone your fork
-git clone https://github.com/your-username/message-app.git
+git clone https://github.com/PrashikshitSaini/message-app
 
 # Create a new branch for your changes
 git checkout -b feature/your-new-feature
 ```
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
