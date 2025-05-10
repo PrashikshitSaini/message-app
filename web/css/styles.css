@@ -188,11 +188,13 @@ select:focus {
 /* Main Layout */
 .main-container {
   display: flex;
-  height: calc(100vh - 40px);
-  background: var(--surface-color);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-  overflow: hidden;
+  flex-direction: row;
+  height: 100%;
+  width: 100%;
+}
+
+.main-container.hidden {
+  display: none !important;
 }
 
 .sidebar {
@@ -1010,4 +1012,45 @@ input:invalid {
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--surface-lighter) var(--surface-color);
+}
+
+/* Fix display visibility issues */
+.hidden {
+  display: none !important;
+}
+
+.main-container {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  width: 100%;
+}
+
+.main-container.hidden {
+  display: none !important;
+}
+
+.auth-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  width: 100%;
+}
+
+.auth-container.hidden {
+  display: none !important;
+}
+
+.loading {
+  padding: 20px;
+  text-align: center;
+  color: #666;
+  font-style: italic;
+}
+
+/* Debug helpers */
+.debug-outline {
+  outline: 2px solid red;
 }

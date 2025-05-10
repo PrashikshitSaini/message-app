@@ -91,44 +91,88 @@ loginForm.addEventListener("submit", async (e) => {
 
   try {
     showToast("Logging in...", "info");
+    console.log("Login attempt for user:", username);
     const passwordHash = await sha256(password);
-    const data = await API.login(username, passwordHash); // Now uses opcode 0x03
+    console.log("Password hashed, sending to server...");
 
-    // Check if we have a data object with an authentication token
-    if (data && data.authentication_token) {
-      // Validate the token format
-      if (!AuthUtils.validateTokenFormat(data.authentication_token)) {
-        showErrorModal(
-          "Authentication Error",
-          "Server returned an invalid authentication token format."
-        );
-        return;
-      }
+    try {
+      const data = await API.login(username, passwordHash);
 
-      // Store the valid token
-      authToken = data.authentication_token;
-      currentUsername = username;
-      currentUsernameSpan.innerText = username;
-      authContainer.classList.add("hidden");
-      mainContainer.classList.remove("hidden");
-      loadChats(); // Load chats after login
-      showToast(`Welcome back, ${username}!`, "success");
+      // Add a timeout to ensure async operations complete
+      setTimeout(() => {
+        // Debug: Log the entire response to see what we're getting
+        console.log("Server response:", data);
 
-      // Check if there's a pending invite link
-      const pendingInviteLink = localStorage.getItem("pendingInviteLink");
-      if (pendingInviteLink) {
-        showToast("Joining chat via invite link...", "info");
-        joinChatViaInviteLink(pendingInviteLink);
-        localStorage.removeItem("pendingInviteLink");
-      }
-    } else if (data && data.error_opcode) {
-      // Handle specific error codes
-      handleApiError(data);
-    } else {
-      // This shouldn't happen with proper server response
+        // Check if we have a data object with an authentication token
+        if (data && data.authentication_token) {
+          console.log("Auth token received, validating...");
+          // Validate the token format
+          if (!AuthUtils.validateTokenFormat(data.authentication_token)) {
+            console.error("Invalid token format:", data.authentication_token);
+            showErrorModal(
+              "Authentication Error",
+              "Server returned an invalid authentication token format."
+            );
+            return;
+          }
+
+          console.log("Token validated successfully");
+          // Store the valid token
+          authToken = data.authentication_token;
+          currentUsername = username;
+          currentUsernameSpan.innerText = username;
+
+          // Fix UI update logic for better reliability
+          console.log("Updating UI for authenticated user");
+          authContainer.classList.add("hidden");
+          mainContainer.classList.remove("hidden");
+
+          // Explicitly set styles as well to ensure visibility
+          authContainer.style.display = "none";
+          mainContainer.style.display = "flex";
+
+          // Verify main container visibility
+          console.log(
+            "Main container display style:",
+            mainContainer.style.display
+          );
+          console.log("Main container classList:", mainContainer.className);
+
+          // Force a repaint to ensure UI updates
+          void mainContainer.offsetHeight;
+
+          // Add a small delay before loading chats
+          setTimeout(() => {
+            console.log("Loading chats...");
+            loadChats(); // Load chats after login
+            console.log("Chats loading initiated");
+          }, 200);
+
+          showToast(`Welcome back, ${username}!`, "success");
+
+          // Check if there's a pending invite link
+          const pendingInviteLink = localStorage.getItem("pendingInviteLink");
+          if (pendingInviteLink) {
+            showToast("Joining chat via invite link...", "info");
+            joinChatViaInviteLink(pendingInviteLink);
+            localStorage.removeItem("pendingInviteLink");
+          }
+        } else if (data && data.error_opcode) {
+          console.error("Server returned error code:", data.error_opcode);
+          handleApiError(data);
+        } else {
+          console.error("Invalid response format:", data);
+          showErrorModal(
+            "Authentication Error",
+            "Server returned an invalid response format."
+          );
+        }
+      }, 100); // Small timeout to ensure async operations complete
+    } catch (apiError) {
+      console.error("API error during login:", apiError);
       showErrorModal(
-        "Authentication Error",
-        "Server returned an invalid response format."
+        "Login Error",
+        "There was an error communicating with the server. Please try again."
       );
     }
   } catch (error) {
@@ -845,23 +889,36 @@ function loadDisplayNamePreferences() {
 
 // Utility: load chats
 async function loadChats() {
+  console.log(
+    "loadChats function called, authToken:",
+    authToken ? "exists" : "missing"
+  );
+  chatList.innerHTML = '<div class="loading">Loading chats...</div>';
+
   try {
+    console.log("Fetching chats from API...");
     const data = await API.getChats(authToken);
+    console.log("Chats API response:", data);
+
     if (data.opcode === 0x00) {
       chatList.innerHTML = "";
+
       if (!data.chats || data.chats.length === 0) {
+        console.log("No chats found, showing empty state");
         chatList.innerHTML = `<div class="empty-state">No chats yet. Create one!</div>`;
         return;
       }
+
+      console.log(`${data.chats.length} chats found, rendering...`);
       data.chats.forEach((chat) => {
         const chatItem = document.createElement("div");
         chatItem.className = "chat-item";
         chatItem.innerText = chat.name;
         chatList.appendChild(chatItem);
+        console.log(`Added chat: ${chat.name}`);
       });
     } else {
       console.error("Failed to load chats:", data.error_opcode);
-      // Simple fallback if the API isn't available: show create chat button
       chatList.innerHTML = `<div class="empty-state">Use the + button to create a chat</div>`;
     }
   } catch (error) {
@@ -1412,6 +1469,7 @@ function showToast(message, type = "info") {
 // Enhanced error handling function
 function handleApiError(data, defaultMessage = "An error occurred") {
   if (!data) {
+    console.error("No data returned from API");
     showErrorModal(
       "Network Error",
       "Failed to connect to the server. Please check your internet connection."
@@ -1422,9 +1480,16 @@ function handleApiError(data, defaultMessage = "An error occurred") {
   const errorOpcode = data.error_opcode;
   const opcode = data.opcode; // Opcode of the request
 
+  console.log(`Handling error: opcode=${opcode}, error_opcode=${errorOpcode}`);
+
   if (errorOpcode) {
     // Get user-friendly error message from API
     const errorMessage = API.getErrorMessage(opcode, errorOpcode);
+    console.error(
+      `API Error: ${errorMessage} (opcode: 0x${opcode.toString(
+        16
+      )}, error: 0x${errorOpcode.toString(16)})`
+    );
 
     // For authentication errors (login opcode 0x03, account creation 0x01)
     // or general auth token error 0x48

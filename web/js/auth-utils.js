@@ -37,11 +37,38 @@ const AuthUtils = {
    * @returns {boolean} True if token is valid
    */
   validateTokenFormat(token) {
-    if (!token) return false;
+    if (!token) {
+      console.error("Token validation failed: Token is null or undefined");
+      return false;
+    }
+
+    if (typeof token !== "string") {
+      console.error(
+        "Token validation failed: Token is not a string type",
+        typeof token
+      );
+      return false;
+    }
 
     try {
+      // Check if the token has valid base64 format
+      if (token.trim() === "" || !/^[A-Za-z0-9+/=]+$/.test(token)) {
+        console.error(
+          "Token validation failed: Invalid base64 characters in token"
+        );
+        return false;
+      }
+
       const bytes = this._base64ToArrayBuffer(token);
-      return bytes.byteLength === 32;
+
+      if (bytes.byteLength !== 32) {
+        console.error(
+          `Token validation failed: Expected 32 bytes but got ${bytes.byteLength} bytes`
+        );
+        return false;
+      }
+
+      return true;
     } catch (e) {
       console.error("Token validation error:", e);
       return false;
@@ -201,11 +228,16 @@ const AuthUtils = {
    * @returns {ArrayBuffer} Decoded array buffer
    */
   _base64ToArrayBuffer(base64) {
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+    try {
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes.buffer;
+    } catch (e) {
+      console.error("Error converting base64 to ArrayBuffer:", e);
+      throw new Error("Invalid base64 encoding");
     }
-    return bytes.buffer;
   },
 };

@@ -4,8 +4,14 @@ const API = {
   // Helper method to make authenticated requests
   async makeRequest(endpoint, opcode, authToken, data = {}) {
     try {
+      // REMOVE the endpoint normalization that broke the app
+      // Just log the endpoint as is - the original code worked this way
+      console.log(
+        `API Request to ${endpoint} with opcode 0x${opcode.toString(16)}`
+      );
+
       // For login and register, don't include the auth token
-      const includeAuth = opcode !== 0x00 && opcode !== 0x01;
+      const includeAuth = opcode !== 0x01 && opcode !== 0x03;
       const token = includeAuth ? authToken : null;
 
       // We're using JSON for transmission while supporting the binary protocol format
@@ -13,7 +19,7 @@ const API = {
 
       // Validate auth token format if we're including it
       if (token && !AuthUtils.validateTokenFormat(token)) {
-        console.error("Invalid authentication token format");
+        console.error("Invalid authentication token format", token);
         throw new Error("Invalid authentication token");
       }
 
@@ -24,7 +30,12 @@ const API = {
         requestData.authentication_token = authToken;
       }
 
-      const response = await fetch(`${this.BASE_URL}${endpoint}`, {
+      console.log("Request data:", JSON.stringify(requestData));
+
+      // Attempt the fetch with improved error handling - use the original URL format
+      const fullUrl = this.BASE_URL + endpoint;
+      console.log(`Sending request to: ${fullUrl}`);
+      const response = await fetch(fullUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -32,11 +43,40 @@ const API = {
         body: JSON.stringify(requestData),
       });
 
+      console.log(`Received response with status: ${response.status}`);
+
+      // Check if response is actually JSON
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        console.error("Received non-JSON response:", contentType);
+        const textResponse = await response.text();
+        console.error("Response text:", textResponse);
+        throw new Error("Response was not JSON");
+      }
+
       if (!response.ok) {
+        console.error(
+          `Network response error: ${response.status} ${response.statusText}`
+        );
+        const errorJson = await response.json().catch((e) => null);
+        console.error("Error response body:", errorJson);
         throw new Error(`Network response was not ok: ${response.status}`);
       }
 
-      return await response.json();
+      const responseData = await response.json();
+      console.log(`API Response from ${endpoint}:`, responseData);
+
+      // Special case for login to ensure we have the authentication token
+      if (
+        opcode === 0x03 &&
+        responseData.opcode === 0x00 &&
+        !responseData.authentication_token
+      ) {
+        console.error("Login successful but no authentication token returned");
+        throw new Error("Server response missing authentication token");
+      }
+
+      return responseData;
     } catch (error) {
       console.error("API request failed:", error);
       throw error;
@@ -59,6 +99,7 @@ const API = {
       Math.floor(Math.random() * 0xffffffff),
     ];
 
+    // Use explicit /login endpoint instead of empty string
     return this.makeRequest("/login", 0x03, null, {
       username,
       passwordHash,

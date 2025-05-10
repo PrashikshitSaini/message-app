@@ -18,8 +18,11 @@ firebase_admin.initialize_app(cred)
 db = firestore.client()
 
 app = Flask(__name__)
-# Enable CORS for all domains with support for all methods and headers
-CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"], "allow_headers": "*"}})
+
+# Fix CORS configuration to handle OPTIONS requests correctly
+CORS(app, origins=["http://127.0.0.1:5500", "http://localhost:5500", "*"], 
+     methods=["GET", "POST", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization", "Accept"])
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -29,15 +32,17 @@ logger = logging.getLogger(__name__)
 # Use a proper session management system whenever possible
 active_sessions = {}  # Format: {token: {'uid': user_id, 'expires': timestamp}}
 
-# Explicitly handle OPTIONS requests for CORS preflight
-@app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
+# Add explicit OPTIONS handling for root path
+@app.route('/', methods=['OPTIONS'])
+def options_root():
+    # This handles the preflight request
+    return '', 204
+
+# Add explicit OPTIONS handling for all routes
 @app.route('/<path:path>', methods=['OPTIONS'])
-def handle_options(path):
-    response = jsonify({})
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE')
-    return response
+def options_handler(path):
+    # This handles the preflight request for all routes
+    return '', 204
 
 # Account Creation Endpoint
 @app.route('/create-account', methods=['POST'])
@@ -117,7 +122,7 @@ def login():
             user = auth.get_user_by_email(email)
         except auth.UserNotFoundError:
             logger.warning(f"Login attempt for non-existent user: {username}")
-            return jsonify({'opcode': 0x03, 'error_opcode': 0x03})  # Username does not exist
+            return jsonify({'opcode': 0x03, 'error_opcode': 0x03})  # Username doesn't exist
             
         # Verify the password
         # Since Firebase doesn't allow direct server-side password verification,
